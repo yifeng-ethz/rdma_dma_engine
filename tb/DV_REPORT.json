@@ -13,17 +13,12 @@
     "logs": "tb/uvm/logs/dbg{1,2}/{B001,B002}.log"
   },
   "non_claims": [
-    "This is a red smoke dashboard, not Phase B closure.",
-    "B001 passes under DEBUG_LEVEL=1 and DEBUG_LEVEL=2.",
-    "B002 is blocked by BUG-001-R: observed WDATA is 0xb0020007...b0020000 while the DV_PLAN section 3.2 MSB-first reference is 0xb0020000...b0020007.",
+    "This is a passing dual-debug smoke dashboard, not full Phase B closure.",
+    "B001 and B002 pass under DEBUG_LEVEL=1 and DEBUG_LEVEL=2 with summary.mismatches=0.",
+    "BUG-001-R is fixed by TB scoreboard and docs correction; RTL remains unchanged because it matches the cosim-validated prototype.",
     "EDGE, PROF, ERROR, CROSS, bucket_frame, and all_buckets_frame evidence remains pending."
   ],
-  "failed_cases": [
-    {
-      "case_id": "B002",
-      "reason": "WDATA slot ordering mismatch against DV_PLAN section 3.2"
-    }
-  ],
+  "failed_cases": [],
   "implementation_summary": {
     "implemented_count": 2,
     "unimplemented_count": 510,
@@ -114,9 +109,9 @@
           "case_id": "B001",
           "full_case_id": "B001",
           "merged_total_after_case": {
-            "stmt": {"pct": 38.17},
-            "branch": {"pct": 20.42},
-            "cond": {"pct": 6.62},
+            "stmt": {"pct": 38.13},
+            "branch": {"pct": 20.54},
+            "cond": {"pct": 6.57},
             "expr": {"pct": 1.47},
             "fsm_state": {"pct": 0.00},
             "fsm_trans": {"pct": 0.00},
@@ -155,18 +150,18 @@
           "primary_checks": "No OPQ, AW, W, B, or job_done activity; both scorecards report mismatches=0.",
           "contract_anchor": "tb/DV_BASIC.md B001; tb/DV_HARNESS.md dual-env reset/default path",
           "standalone_coverage": {
-            "stmt": {"pct": 38.17},
-            "branch": {"pct": 20.42},
-            "cond": {"pct": 6.62},
+            "stmt": {"pct": 38.13},
+            "branch": {"pct": 20.54},
+            "cond": {"pct": 6.57},
             "expr": {"pct": 1.47},
             "fsm_state": {"pct": 0.00},
             "fsm_trans": {"pct": 0.00},
             "toggle": {"pct": 0.30}
           },
           "bucket_merged_total_after_case": {
-            "stmt": {"pct": 38.17},
-            "branch": {"pct": 20.42},
-            "cond": {"pct": 6.62},
+            "stmt": {"pct": 38.13},
+            "branch": {"pct": 20.54},
+            "cond": {"pct": 6.57},
             "expr": {"pct": 1.47},
             "fsm_state": {"pct": 0.00},
             "fsm_trans": {"pct": 0.00},
@@ -184,37 +179,37 @@
           "bucket": "BASIC",
           "method": "D",
           "implemented": true,
-          "passed": false,
+          "passed": true,
           "implementation_mode": "uvm_dual_debug_smoke",
           "build_tag": "dual_debug",
           "build_tag_lower": "dual_debug",
           "isolated_effort": "smoke",
           "observed_txn": 1,
           "scenario": "Single job, eight OPQ hit words, one EOE, one 256-bit AXI4 W beat.",
-          "primary_checks": "AXI AW/W/B and job_done observed; scoreboard rejects WDATA slot ordering.",
-          "contract_anchor": "tb/DV_BASIC.md B002; tb/DV_PLAN.md section 3.2 MSB-first pack contract",
+          "primary_checks": "AXI AW/W/B and job_done observed; both scorecards report mismatches=0.",
+          "contract_anchor": "tb/DV_BASIC.md B002; tb/DV_PLAN.md section 3.2 LSB-first pack contract",
           "standalone_coverage": {
-            "stmt": {"pct": 70.23},
-            "branch": {"pct": 35.05},
-            "cond": {"pct": 23.33},
-            "expr": {"pct": 44.00},
-            "fsm_state": {"pct": 85.71},
-            "fsm_trans": {"pct": 50.00},
-            "toggle": {"pct": 7.26}
+            "stmt": {"pct": 70.71},
+            "branch": {"pct": 37.79},
+            "cond": {"pct": 25.65},
+            "expr": {"pct": 48.52},
+            "fsm_state": {"pct": 100.00},
+            "fsm_trans": {"pct": 33.33},
+            "toggle": {"pct": 9.95}
           },
           "isolated_cov_per_txn": {
-            "stmt": {"pct": 70.23},
-            "branch": {"pct": 35.05},
-            "cond": {"pct": 23.33},
-            "expr": {"pct": 44.00},
-            "fsm_state": {"pct": 85.71},
-            "fsm_trans": {"pct": 50.00},
-            "toggle": {"pct": 7.26}
+            "stmt": {"pct": 70.71},
+            "branch": {"pct": 37.79},
+            "cond": {"pct": 25.65},
+            "expr": {"pct": 48.52},
+            "fsm_state": {"pct": 100.00},
+            "fsm_trans": {"pct": 33.33},
+            "toggle": {"pct": 9.95}
           },
           "bucket_gain_by_case": {
-            "stmt": {"pct": 24.80},
-            "branch": {"pct": 10.01},
-            "cond": {"pct": 9.35},
+            "stmt": {"pct": 24.84},
+            "branch": {"pct": 9.89},
+            "cond": {"pct": 9.40},
             "expr": {"pct": 2.47},
             "fsm_state": {"pct": 0.00},
             "fsm_trans": {"pct": 0.00},
@@ -230,9 +225,9 @@
             "toggle": {"pct": 2.96}
           },
           "bucket_gain_per_txn": {
-            "stmt": {"pct": 24.80},
-            "branch": {"pct": 10.01},
-            "cond": {"pct": 9.35},
+            "stmt": {"pct": 24.84},
+            "branch": {"pct": 9.89},
+            "cond": {"pct": 9.40},
             "expr": {"pct": 2.47},
             "fsm_state": {"pct": 0.00},
             "fsm_trans": {"pct": 0.00},
@@ -244,10 +239,9 @@
             "w": 1,
             "b": 1,
             "job_done": 1,
-            "dbg1_mismatches": 1,
-            "dbg2_mismatches": 1,
-            "got_wdata": "0xb0020007b0020006b0020005b0020004b0020003b0020002b0020001b0020000",
-            "expected_wdata": "0xb0020000b0020001b0020002b0020003b0020004b0020005b0020006b0020007",
+            "dbg1_mismatches": 0,
+            "dbg2_mismatches": 0,
+            "slot_order": "LSB-first: slot N at bits [N*32+31 : N*32]",
             "merged_ucdb": "tb/uvm/cov_after/B002_dual_debug_merged.ucdb"
           }
         }
@@ -298,11 +292,11 @@
       },
       "cross_summary": {
         "txns": 2,
-        "pct": 50.0,
+        "pct": 100.0,
         "queued_overlap": 0,
-        "counter_checks_failed": 2,
+        "counter_checks_failed": 0,
         "unexpected_outputs": 0,
-        "curve": "txn=1 case=B001 seq=reset pct=50.0 delta_bins=1 reason=idle_defaults; txn=2 case=B002 seq=single_job pct=50.0 delta_bins=0 reason=WDATA_mismatch"
+        "curve": "txn=1 case=B001 seq=reset pct=50.0 delta_bins=1 reason=idle_defaults; txn=2 case=B002 seq=single_job pct=100.0 delta_bins=1 reason=single_job_pass"
       }
     }
   ],

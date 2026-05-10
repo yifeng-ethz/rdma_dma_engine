@@ -27,8 +27,8 @@
 
 | status | step | case_id | merged_total (stmt/branch/cond/expr/fsm_state/fsm_trans/toggle) | detail |
 |:---:|---:|---|---|---|
-| ✅ | 1 | `B001` | stmt=38.17, branch=20.42, cond=6.62, expr=1.47, fsm_state=0.00, fsm_trans=0.00, toggle=0.30 | [case](../cases/B001.md) |
-| ❌ | 2 | `B002` | stmt=62.97, branch=30.43, cond=15.97, expr=3.94, fsm_state=0.00, fsm_trans=0.00, toggle=2.96 | [case](../cases/B002.md) |
+| ✅ | 1 | `B001` | stmt=38.13, branch=20.54, cond=6.57, expr=1.47, fsm_state=0.00, fsm_trans=0.00, toggle=0.30 | [case](../cases/B001.md) |
+| ✅ | 2 | `B002` | stmt=62.97, branch=30.43, cond=15.97, expr=3.94, fsm_state=0.00, fsm_trans=0.00, toggle=2.96 | [case](../cases/B002.md) |
 
 ---
 _Back to [dashboard](../../DV_REPORT.md)_

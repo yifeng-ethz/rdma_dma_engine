@@ -1,4 +1,4 @@
-# ❌ DV Report — `rdma_dma_engine Phase B UVM smoke`
+# ⚠️ DV Report — `rdma_dma_engine Phase B UVM smoke`
 
 **DUT:** `rdma_dma_engine` &nbsp; **Date:** `2026-05-10` &nbsp;
 **RTL variant:** `DEBUG_LEVEL=1/2 dual-env smoke` &nbsp; **Seed:** `1`
@@ -13,8 +13,8 @@ This page is the chief-architect dashboard. All per-case evidence lives under [`
 
 | status | field | value |
 |:---:|---|---|
-| ❌ | failed_cases | `1` |
-| ❌ | signoff_runs_with_failures | `1` |
+| ✅ | failed_cases | `0` |
+| ✅ | signoff_runs_with_failures | `0` |
 | ⚠️ | catalog_backlog_cases | `510` |
 | ⚠️ | unimplemented_cases | `510` |
 | ✅ | stale_artifacts | `0` |
@@ -32,9 +32,9 @@ This page is the chief-architect dashboard. All per-case evidence lives under [`
 
 ## Non-Claims
 
-- This is a red smoke dashboard, not Phase B closure.
-- B001 passes under DEBUG_LEVEL=1 and DEBUG_LEVEL=2.
-- B002 is blocked by BUG-001-R: observed WDATA is 0xb0020007...b0020000 while the DV_PLAN section 3.2 MSB-first reference is 0xb0020000...b0020007.
+- This is a passing dual-debug smoke dashboard, not full Phase B closure.
+- B001 and B002 pass under DEBUG_LEVEL=1 and DEBUG_LEVEL=2 with summary.mismatches=0.
+- BUG-001-R is fixed by TB scoreboard and docs correction; RTL remains unchanged because it matches the cosim-validated prototype.
 - EDGE, PROF, ERROR, CROSS, bucket_frame, and all_buckets_frame evidence remains pending.
 
 ## Bucket Summary
@@ -71,7 +71,7 @@ This page is the chief-architect dashboard. All per-case evidence lives under [`
 
 | status | run_id | kind | build | seq | txns | cross_pct |
 |:---:|---|---|---|---|---:|---:|
-| ❌ | [`rdma_dma_engine_dual_debug_smoke`](REPORT/cross/rdma_dma_engine_dual_debug_smoke.md) | isolated | dual_debug | make -C tb/uvm regress | 2 | 50.0 |
+| ✅ | [`rdma_dma_engine_dual_debug_smoke`](REPORT/cross/rdma_dma_engine_dual_debug_smoke.md) | isolated | dual_debug | make -C tb/uvm regress | 2 | 100.0 |
 
 ## Index
 

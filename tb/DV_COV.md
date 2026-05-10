@@ -37,6 +37,6 @@ This page is the coverage summary only. Per-case incremental coverage lives unde
 
 | status | run_id | kind | build | bucket | case_count | stmt | branch | toggle | functional_cross_pct | txns |
 |:---:|---|---|---|---|---:|---|---|---|---:|---:|
-| ❌ | [`rdma_dma_engine_dual_debug_smoke`](REPORT/cross/rdma_dma_engine_dual_debug_smoke.md) | isolated | dual_debug | BASIC | 2 | 62.97 | 30.43 | 2.96 | 50.0 | 2 |
+| ✅ | [`rdma_dma_engine_dual_debug_smoke`](REPORT/cross/rdma_dma_engine_dual_debug_smoke.md) | isolated | dual_debug | BASIC | 2 | 62.97 | 30.43 | 2.96 | 100.0 | 2 |
 
 _Regenerate with `python3 ~/.codex/skills/dv-workflow/scripts/dv_report_gen.py <tb>`._

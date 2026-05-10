@@ -22,7 +22,7 @@
 
 | status | run_id | kind | build | bucket | seq | txns | cross_pct |
 |:---:|---|---|---|---|---|---:|---:|
-| ❌ | [`rdma_dma_engine_dual_debug_smoke`](cross/rdma_dma_engine_dual_debug_smoke.md) | isolated | dual_debug | BASIC | make -C tb/uvm regress | 2 | 50.0 |
+| ✅ | [`rdma_dma_engine_dual_debug_smoke`](cross/rdma_dma_engine_dual_debug_smoke.md) | isolated | dual_debug | BASIC | make -C tb/uvm regress | 2 | 100.0 |
 
 ## Random long-run cases
 

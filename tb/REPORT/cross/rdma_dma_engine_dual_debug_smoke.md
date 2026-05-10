@@ -1,4 +1,4 @@
-# ❌ rdma_dma_engine_dual_debug_smoke
+# ✅ rdma_dma_engine_dual_debug_smoke
 
 **Kind:** `isolated` &nbsp; **Build:** `dual_debug` &nbsp; **Bucket:** `BASIC` &nbsp; **Sequence:** `make -C tb/uvm regress`
 
@@ -22,9 +22,9 @@
 | ℹ️ | iter_cap | `1` |
 | ℹ️ | payload_cap | `8` |
 | ℹ️ | txns | `2` |
-| ❌ | functional_cross_pct | `50.0` |
+| ✅ | functional_cross_pct | `100.0` |
 | ℹ️ | queued_overlap | `0` |
-| ❌ | counter_checks_failed | `2` |
+| ✅ | counter_checks_failed | `0` |
 | ✅ | unexpected_outputs | `0` |
 
 ## Code coverage
@@ -49,7 +49,7 @@
 | txn | case | seq | pct | delta_bins | reason |
 |---:|---|---|---|---:|---|
 | 1 | `B001` | `reset` | 50.0 | 1 | idle_defaults |
-| 2 | `B002` | `single_job` | 50.0 | 0 | WDATA_mismatch |
+| 2 | `B002` | `single_job` | 100.0 | 1 | single_job_pass |
 
 ---
 _Back to [dashboard](../../DV_REPORT.md)_

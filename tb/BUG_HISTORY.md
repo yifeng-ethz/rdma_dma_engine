@@ -40,7 +40,7 @@ Historical formal note:
 | bug_id | class | severity | encounterability | status | first seen | commit | summary |
 |---|---|---|---|---|---|---|---|
 | [BUG-000-H](#bug-000-h-bug-history-seeded-empty-at-dv-bring-up) | H | non-datapath-refactor | directed-only (DV bring-up bookkeeping) | fixed | DV bring-up | `pending` | BUG_HISTORY.md seeded empty at DV bring-up so the ledger lints clean before any real RTL/harness bug surfaces. |
-| [BUG-001-R](#bug-001-r-packer-word-order-reverses-dv-plan-msb-first-contract) | H | soft error | common (single full DMA word) | fixed | B002 dual-debug smoke | `pending` | TB scoreboard and docs expected MSB-first while RTL/prototype pack LSB-first. |
+| [BUG-001-R](#bug-001-r-packer-word-order-reverses-dv-plan-msb-first-contract) | H | soft error | common (single full DMA word) | fixed | B002 dual-debug smoke | `3d2ba7f` | TB scoreboard and docs expected MSB-first while RTL/prototype pack LSB-first. |
 
 ## 2026-05-10
 
@@ -88,7 +88,7 @@ Historical formal note:
   - fixed smoke evidence: `B002` observes `opq=8 aw=1 w=1 b=1 job_done=1`
     with `dbg1_mismatches=0` and `dbg2_mismatches=0`
 - Commit:
-  - pending
+  - `3d2ba7f` (`[FIX] Resolve BUG-001-R: TB scoreboard slot order`)
 
 ### BUG-000-H: BUG_HISTORY.md seeded empty at DV bring-up
 - First seen in:
