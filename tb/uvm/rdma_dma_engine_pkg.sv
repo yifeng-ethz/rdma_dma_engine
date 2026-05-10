@@ -115,7 +115,7 @@ package rdma_dma_engine_pkg;
       axi_cfg = axi4_write_cfg::type_id::create("axi_cfg");
       opq_cfg.vif = vif;
       opq_cfg.debug_level = debug_level;
-      opq_cfg.drive_sidecar = (debug_level >= 2);
+      opq_cfg.drive_sidecar = 1'b1;
       job_cfg_h.vif = vif;
       axi_cfg.vif = vif;
 
@@ -557,19 +557,11 @@ package rdma_dma_engine_pkg;
       vif.s_axis_opq_tvalid <= 1'b1;
       vif.s_axis_opq_tlast <= eoe;
       vif.s_axis_opq_tuser <= {1'b0, (hit_id == 32'd1)};
-      if (env.debug_level >= 2) begin
-        vif.dbg2_meta_valid <= 1'b1;
-        vif.dbg2_meta_lane <= 4'h0;
-        vif.dbg2_meta_hit_id <= hit_id;
-        vif.dbg2_meta_source_ts <= hit_id;
-        vif.dbg2_meta_sequence_no <= sequence_no;
-      end else begin
-        vif.dbg2_meta_valid <= 1'b0;
-        vif.dbg2_meta_lane <= '0;
-        vif.dbg2_meta_hit_id <= '0;
-        vif.dbg2_meta_source_ts <= '0;
-        vif.dbg2_meta_sequence_no <= '0;
-      end
+      vif.dbg2_meta_valid <= 1'b1;
+      vif.dbg2_meta_lane <= 4'h0;
+      vif.dbg2_meta_hit_id <= hit_id;
+      vif.dbg2_meta_source_ts <= hit_id;
+      vif.dbg2_meta_sequence_no <= sequence_no;
       do begin
         @(posedge vif.clk);
       end while (vif.s_axis_opq_tready !== 1'b1);
@@ -2072,6 +2064,440 @@ package rdma_dma_engine_pkg;
       check_status_bit(tag, "status[FULL]", RDMA_DMA_ST_FULL, 1'b1);
     endtask
 
+    task run_dbg1_idle_aw_inflight_case(input string tag);
+      for (int unsigned cycle = 0; cycle < 96; cycle++) begin
+        @(posedge vif.clk);
+        if (vif.dbg1_writer_state !== 4'd0)
+          `uvm_error(tag, $sformatf("writer left IDLE during idle probe, state=%0d",
+                                    vif.dbg1_writer_state))
+        if (vif.dbg1_aw_inflight !== 4'd0)
+          `uvm_error(tag, $sformatf("dbg1_aw_inflight got=%0d expected=0",
+                                    vif.dbg1_aw_inflight))
+      end
+    endtask
+
+    task run_packer_pending_eoe_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      bit saw_pending;
+      bit saw_clear_after_pending;
+
+      stop_monitor = 1'b0;
+      saw_pending = 1'b0;
+      saw_clear_after_pending = 1'b0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n !== 1'b1)
+              continue;
+            if (vif.dbg1_packer_pending_eoe)
+              saw_pending = 1'b1;
+            if (saw_pending && !vif.dbg1_packer_pending_eoe)
+              saw_clear_after_pending = 1'b1;
+          end
+        end
+      join_none
+
+      run_dma_job(.tag(tag), .opq_words(5), .send_eoe(1'b1),
+                  .wready_lag(200), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (!saw_pending)
+        `uvm_error(tag, "dbg1_packer_pending_eoe never asserted")
+      if (!saw_clear_after_pending)
+        `uvm_error(tag, "dbg1_packer_pending_eoe did not clear after flush")
+    endtask
+
+    task run_writer_state_cycle_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      bit [3:0] prev_state;
+      bit saw_program;
+      bit saw_aw;
+      bit saw_w;
+      bit saw_b;
+      bit saw_report;
+
+      stop_monitor = 1'b0;
+      prev_state = vif.dbg1_writer_state;
+      saw_program = 1'b0;
+      saw_aw = 1'b0;
+      saw_w = 1'b0;
+      saw_b = 1'b0;
+      saw_report = 1'b0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n !== 1'b1)
+              continue;
+            case (vif.dbg1_writer_state)
+              4'd1: saw_program = 1'b1;
+              4'd2: saw_aw = 1'b1;
+              4'd3: saw_w = 1'b1;
+              4'd4: saw_b = 1'b1;
+              4'd5: saw_report = 1'b1;
+              default: begin end
+            endcase
+            if (vif.dbg1_writer_state !== prev_state) begin
+              if (!(((prev_state == 4'd0) && (vif.dbg1_writer_state == 4'd1)) ||
+                    ((prev_state == 4'd1) && (vif.dbg1_writer_state == 4'd2)) ||
+                    ((prev_state == 4'd2) && (vif.dbg1_writer_state == 4'd3)) ||
+                    ((prev_state == 4'd3) && (vif.dbg1_writer_state == 4'd4)) ||
+                    ((prev_state == 4'd4) && (vif.dbg1_writer_state == 4'd2)) ||
+                    ((prev_state == 4'd4) && (vif.dbg1_writer_state == 4'd5)) ||
+                    ((prev_state == 4'd5) && (vif.dbg1_writer_state == 4'd0))))
+                `uvm_error(tag, $sformatf("illegal writer state hop %0d->%0d",
+                                          prev_state, vif.dbg1_writer_state))
+              prev_state = vif.dbg1_writer_state;
+            end
+          end
+        end
+      join_none
+
+      run_dma_job(.tag(tag), .seg0_span(64'h1000), .opq_words(1024),
+                  .send_eoe(1'b0), .awready_lag(8), .wready_lag(2),
+                  .bvalid_lag(12), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(500000));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (!(saw_program && saw_aw && saw_w && saw_b && saw_report))
+        `uvm_error(tag, "writer FSM did not visit all expected states")
+    endtask
+
+    task run_dbg2_slot5_padding_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      bit saw_mask;
+
+      stop_monitor = 1'b0;
+      saw_mask = 1'b0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if ((env.debug_level >= 2) && vif.dbg2_writer_meta_valid) begin
+              if (vif.dbg2_writer_meta_valid_mask !== 8'h1f)
+                `uvm_error(tag, $sformatf("dbg2 valid mask got=0x%02h expected=0x1f",
+                                          vif.dbg2_writer_meta_valid_mask))
+              saw_mask = 1'b1;
+            end
+          end
+        end
+      join_none
+
+      run_packer_flush_slot_case(.tag(tag), .slot_words(5),
+                                 .sqe_id(sqe_id),
+                                 .sequence_no(sequence_no));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if ((env.debug_level >= 2) && !saw_mask)
+        `uvm_error(tag, "DEBUG2 slot-5 mask was not observed")
+    endtask
+
+    task run_dbg2_halt_residual_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_halt_count_job(.tag(tag), .dropped_words(4),
+                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+      if (env.debug_level >= 2) begin
+        if (env.scb.ignored_opq_count != vif.cnt_halt)
+          `uvm_error(tag, $sformatf("ignored OPQ got=%0d expected cnt_halt=%0d",
+                                    env.scb.ignored_opq_count, vif.cnt_halt))
+        if ((env.scb.opq_count - env.scb.dbg2_emit_count) != vif.cnt_halt)
+          `uvm_error(tag, $sformatf("dbg2 residual got=%0d expected cnt_halt=%0d",
+                                    env.scb.opq_count - env.scb.dbg2_emit_count,
+                                    vif.cnt_halt))
+      end
+    endtask
+
+    task run_dbg2_hit_id_wrap_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      next_lineage_id = 32'h0000_fffc;
+      run_dma_job(.tag(tag), .opq_words(16), .send_eoe(1'b1),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(300000));
+      if (next_lineage_id <= 32'h0001_0000)
+        `uvm_error(tag, "hit_id stream did not cross the 16-bit wrap point")
+      if ((env.debug_level >= 2) && (env.scb.dbg2_emit_count != 16))
+        `uvm_error(tag, $sformatf("dbg2 emit count got=%0d expected=16",
+                                  env.scb.dbg2_emit_count))
+    endtask
+
+    task run_dbg2_monotonic_sequence_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      bit seen_first;
+      bit [31:0] prev_seq;
+      int unsigned seen_count;
+
+      stop_monitor = 1'b0;
+      seen_first = 1'b0;
+      prev_seq = 32'h0;
+      seen_count = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if ((env.debug_level >= 2) && vif.dbg2_writer_meta_valid) begin
+              for (int unsigned slot = 0; slot < RDMA_DMA_OPQ_PER_BEAT; slot++) begin
+                if (vif.dbg2_writer_meta_valid_mask[slot]) begin
+                  bit [31:0] cur_seq;
+                  cur_seq = vif.dbg2_writer_meta_sequence_no[slot*32 +: 32];
+                  if (seen_first && (cur_seq <= prev_seq))
+                    `uvm_error(tag, $sformatf("sequence_no not monotonic got=%0d prev=%0d",
+                                              cur_seq, prev_seq))
+                  prev_seq = cur_seq;
+                  seen_first = 1'b1;
+                  seen_count++;
+                end
+              end
+            end
+          end
+        end
+      join_none
+
+      expect_simple_status_job(64'd128, 32'd128, 32'd0,
+                               single_seg_eoe_status(),
+                               single_seg_status_mask(), sqe_id);
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      for (int unsigned idx = 0; idx < 32; idx++) begin
+        drive_direct_opq_word({8'h00, sequence_no[15:0], idx[7:0]},
+                              idx == 31, sequence_no + idx,
+                              next_lineage_id + idx + 1);
+      end
+      next_lineage_id += 32;
+      wait_for_done(300000);
+      wait_cycles(2);
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if ((env.debug_level >= 2) && (seen_count != 32))
+        `uvm_error(tag, $sformatf("monotonic sequence samples got=%0d expected=32",
+                                  seen_count))
+    endtask
+
+    task run_dbg2_monotonic_source_ts_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      bit seen_first;
+      bit [63:0] prev_ts;
+      int unsigned seen_count;
+
+      stop_monitor = 1'b0;
+      seen_first = 1'b0;
+      prev_ts = 64'h0;
+      seen_count = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if ((env.debug_level >= 2) && vif.dbg2_writer_meta_valid) begin
+              for (int unsigned slot = 0; slot < RDMA_DMA_OPQ_PER_BEAT; slot++) begin
+                if (vif.dbg2_writer_meta_valid_mask[slot]) begin
+                  bit [63:0] cur_ts;
+                  cur_ts = vif.dbg2_writer_meta_source_ts[slot*64 +: 64];
+                  if (seen_first && (cur_ts <= prev_ts))
+                    `uvm_error(tag, $sformatf("source_ts not monotonic got=%0d prev=%0d",
+                                              cur_ts, prev_ts))
+                  prev_ts = cur_ts;
+                  seen_first = 1'b1;
+                  seen_count++;
+                end
+              end
+            end
+          end
+        end
+      join_none
+
+      next_lineage_id = 32'h0000_2000;
+      run_dma_job(.tag(tag), .opq_words(32), .send_eoe(1'b1),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(300000));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if ((env.debug_level >= 2) && (seen_count != 32))
+        `uvm_error(tag, $sformatf("monotonic source_ts samples got=%0d expected=32",
+                                  seen_count))
+    endtask
+
+    task run_dbg2_inert_dbg1_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      bit saw_dbg2_sidecar;
+
+      stop_monitor = 1'b0;
+      saw_dbg2_sidecar = 1'b0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if ((vif.dbg2_writer_meta_valid !== 1'b0) ||
+                (vif.dbg2_writer_meta_valid_mask !== '0))
+              saw_dbg2_sidecar = 1'b1;
+          end
+        end
+      join_none
+
+      run_dma_job(.tag(tag), .opq_words(32), .send_eoe(1'b1),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(300000));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if ((env.debug_level == 1) && saw_dbg2_sidecar)
+        `uvm_error(tag, "DEBUG2 sidecar was not inert in DEBUG1")
+      if ((env.debug_level >= 2) && (env.scb.dbg2_emit_count == 0))
+        `uvm_error(tag, "DEBUG2 sidecar did not emit in DEBUG2")
+    endtask
+
+    task run_random_span_grid_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [63:0] span_grid [5];
+      span_grid[0] = 64'h0000_0000_0000_1000;
+      span_grid[1] = 64'h0000_0000_0000_2000;
+      span_grid[2] = 64'h0000_0000_0000_4000;
+      span_grid[3] = 64'h0000_0000_0000_8000;
+      span_grid[4] = 64'h0000_0000_0001_0000;
+      for (int unsigned idx = 0; idx < 32; idx++) begin
+        bit two_seg_v;
+        two_seg_v = (idx % 3) == 1;
+        run_dma_job(.tag($sformatf("%s_iter%0d", tag, idx)),
+                    .seg0_span(span_grid[(idx * 7) % 5]),
+                    .seg1_span(two_seg_v ? span_grid[(idx * 11 + 2) % 5] :
+                                           64'h0),
+                    .opq_words(64 + ((idx * 37) % 512)),
+                    .send_eoe(1'b1),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx),
+                    .idle_after_each(idx % 3),
+                    .timeout_cycles(400000));
+      end
+      check_conservation(tag);
+    endtask
+
+    task run_random_eoe_slot_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      for (int unsigned idx = 0; idx < 16; idx++) begin
+        int unsigned slot_words;
+        pulse_clear_counters();
+        slot_words = 1 + ((idx * 5) % RDMA_DMA_OPQ_PER_BEAT);
+        run_packer_flush_slot_case(.tag($sformatf("%s_slot%0d", tag, idx)),
+                                   .slot_words(slot_words),
+                                   .sqe_id(sqe_id + idx[15:0]),
+                                   .sequence_no(sequence_no + idx));
+      end
+    endtask
+
+    task run_random_two_segment_transition_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      for (int unsigned idx = 0; idx < 16; idx++) begin
+        run_dma_job(.tag($sformatf("%s_iter%0d", tag, idx)),
+                    .seg0_span(64'h1000), .seg1_span(64'h1000),
+                    .opq_words(1025 + ((idx * 37) % 512)),
+                    .send_eoe(1'b1),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx),
+                    .idle_after_each(idx % 4),
+                    .timeout_cycles(500000));
+        check_status_bit(tag, "status[SEG_BOUNDARY_HIT]",
+                         RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
+      end
+      check_conservation(tag);
+    endtask
+
+    task run_random_burst_size_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      for (int unsigned idx = 0; idx < 32; idx++) begin
+        run_aw_observed_job(.tag($sformatf("%s_iter%0d", tag, idx)),
+                            .obs_seg0_addr(64'h0000_0000_0010_0000 +
+                                           (64'(idx % 8) << 12)),
+                            .obs_seg0_span(64'h0000_0000_0000_4000),
+                            .obs_words(16 + ((idx * 29) % 768)),
+                            .obs_send_eoe(1'b1),
+                            .expected_aw_count(0),
+                            .check_first_aw(1'b0),
+                            .obs_idle_after_each(idx % 5),
+                            .obs_wready_lag((idx % 4) == 0 ? 3 : 0),
+                            .obs_bvalid_lag((idx % 5) == 0 ? 24 : 1),
+                            .sqe_id(sqe_id + idx[15:0]),
+                            .sequence_no(sequence_no + idx),
+                            .timeout_cycles(500000));
+      end
+      check_conservation(tag);
+    endtask
+
+    task run_fifo_above_threshold_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      int unsigned max_level;
+
+      stop_monitor = 1'b0;
+      max_level = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.dbg1_fifo_level > max_level)
+              max_level = vif.dbg1_fifo_level;
+          end
+        end
+      join_none
+      run_halt_count_job(.tag(tag), .dropped_words(8),
+                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (max_level != 192)
+        `uvm_error(tag, $sformatf("fifo max_level got=%0d expected clamp at 192",
+                                  max_level))
+      if (vif.cnt_halt < 8)
+        `uvm_error(tag, $sformatf("cnt_halt got=%0d expected at least 8",
+                                  vif.cnt_halt))
+    endtask
+
     task run_halt_count_job(
       input string tag,
       input int unsigned dropped_words = 10,
@@ -3537,6 +3963,80 @@ package rdma_dma_engine_pkg;
             end
             80: begin
               run_dbg1_aw_inflight_case(.tag(id), .sqe_id(sqe_id));
+            end
+            default: begin
+              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+            end
+          endcase
+          return;
+        end
+        if (num <= 96) begin
+          case (num)
+            81: begin
+              run_dbg1_idle_aw_inflight_case(.tag(id));
+            end
+            82: begin
+              run_packer_pending_eoe_case(.tag(id), .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            83: begin
+              run_writer_state_cycle_case(.tag(id), .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            84: begin
+              run_halt_count_job(.tag(id), .dropped_words(4),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            85: begin
+              run_dbg2_slot5_padding_case(.tag(id), .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            86: begin
+              run_dbg2_halt_residual_case(.tag(id), .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            87: begin
+              run_dbg2_hit_id_wrap_case(.tag(id), .sqe_id(sqe_id),
+                                        .sequence_no(num));
+            end
+            88: begin
+              run_dbg2_monotonic_sequence_case(.tag(id), .sqe_id(sqe_id),
+                                               .sequence_no(num));
+            end
+            89: begin
+              run_dbg2_monotonic_source_ts_case(.tag(id), .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            end
+            90: begin
+              run_dbg2_inert_dbg1_case(.tag(id), .sqe_id(sqe_id),
+                                       .sequence_no(num));
+            end
+            91: begin
+              run_random_span_grid_case(.tag(id), .sqe_id(sqe_id),
+                                        .sequence_no(num));
+            end
+            92: begin
+              run_random_eoe_slot_case(.tag(id), .sqe_id(sqe_id),
+                                       .sequence_no(num));
+            end
+            93: begin
+              run_random_two_segment_transition_case(.tag(id),
+                                                     .sqe_id(sqe_id),
+                                                     .sequence_no(num));
+            end
+            94: begin
+              run_random_burst_size_case(.tag(id), .sqe_id(sqe_id),
+                                         .sequence_no(num));
+            end
+            95: begin
+              run_fifo_threshold_edge_case(.tag(id), .sqe_id(sqe_id),
+                                           .check_crossing(1'b1),
+                                           .check_drain(1'b0),
+                                           .sequence_no(num));
+            end
+            96: begin
+              run_fifo_above_threshold_case(.tag(id), .sqe_id(sqe_id),
+                                            .sequence_no(num));
             end
             default: begin
               run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));

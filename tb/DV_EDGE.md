@@ -1,4 +1,4 @@
-# DV Edge — rdma_dma_engine
+# DV Edge - rdma_dma_engine
 
 **Companion docs:** `DV_PLAN.md`, `DV_HARNESS.md`, `DV_BASIC.md`,
 `DV_PROF.md`, `DV_ERROR.md`, `DV_CROSS.md`, `DV_COV.md`,
@@ -10,8 +10,8 @@
 
 This document collects the corner / boundary cases for
 `rdma_dma_engine`. Every row pins a specific contract or arithmetic
-boundary on the DUT. Cases are derived from `DV_PLAN.md` §3 and the
-AXI4 burst-sizing arithmetic in `RTL_PLAN.md` §4.3.
+boundary on the DUT. Cases are derived from `DV_PLAN.md` section 3 and the
+AXI4 burst-sizing arithmetic in `RTL_PLAN.md` section 4.3.
 
 **Methodology key:**
 - **D** = Directed (hand-crafted stimulus, single transaction)
@@ -221,7 +221,7 @@ AXI4 burst-sizing arithmetic in `RTL_PLAN.md` §4.3.
 | ID | Method | Scenario | Iter | Stimulus | Pass Criteria | Function Reference |
 |----|--------|----------|------|----------|---------------|--------------------|
 | E095 | D | FIFO at 191 (one below threshold) | 1 | Carefully drive level to 191. | almost_full=0; one more entry triggers almost_full=1. | TBD |
-| E096 | D | FIFO at 193 (one above threshold) | 1 | Level=193. | almost_full=1. | TBD |
+| E096 | D | FIFO clamps at threshold while one above-threshold ingress beat is dropped | 1 | Drive to level 192, then continue OPQ ingress while almost_full=1. | max dbg1_fifo_level==192; cnt_halt increments for dropped OPQ words. | TBD |
 | E097 | D | FIFO at 255 (depth-1) | 1 | Level=255. | almost_full=1; one more goes to full. | TBD |
 | E098 | D | FIFO at 256 (depth) | 1 | Force full. | Wr_en suppressed; halt counts dropped beats. | TBD |
 | E099 | D | FIFO recovery from full | 1 | Full -> drain -> normal. | After drain, accepts new writes. | TBD |
@@ -298,4 +298,3 @@ AXI4 burst-sizing arithmetic in `RTL_PLAN.md` §4.3.
 | E128 | D | Two-job sequence with first ALIGN_ERR | 1 | First refused. | Second job runs cleanly. | TBD |
 
 ---
-

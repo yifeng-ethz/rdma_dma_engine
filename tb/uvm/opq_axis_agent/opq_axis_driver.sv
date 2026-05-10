@@ -35,7 +35,7 @@ class opq_axis_driver extends uvm_driver #(opq_axis_item);
     vif.s_axis_opq_tvalid <= 1'b1;
     vif.s_axis_opq_tlast <= item.eoe;
     vif.s_axis_opq_tuser <= {1'b0, item.sop};
-    if (cfg.debug_level >= 2 && cfg.drive_sidecar) begin
+    if (cfg.drive_sidecar) begin
       vif.dbg2_meta_valid <= 1'b1;
       vif.dbg2_meta_lane <= item.lane;
       vif.dbg2_meta_hit_id <= item.hit_id;
@@ -65,4 +65,3 @@ class opq_axis_driver extends uvm_driver #(opq_axis_item);
 endclass
 
 `endif
-

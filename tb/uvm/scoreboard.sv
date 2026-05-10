@@ -164,10 +164,10 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
 
   function lineage_t canonical_lineage(input opq_axis_pkg::opq_axis_item item);
     lineage_t lin;
-    lin.lane = (debug_level >= 2) ? item.lane : 4'h0;
-    lin.hit_id = (debug_level >= 2 && item.hit_id != 32'h0) ? item.hit_id : opq_count;
-    lin.source_ts = (debug_level >= 2 && item.source_ts != 64'h0) ? item.source_ts : opq_count;
-    if (debug_level >= 2 && item.sequence_no != 32'h0) begin
+    lin.lane = item.lane;
+    lin.hit_id = (item.hit_id != 32'h0) ? item.hit_id : opq_count;
+    lin.source_ts = (item.source_ts != 64'h0) ? item.source_ts : opq_count;
+    if (item.sequence_no != 32'h0) begin
       lin.sequence_no = item.sequence_no;
     end else if (item.data[31:24] == 8'h00 && item.data[23:8] != 16'h0000) begin
       lin.sequence_no = {16'h0000, item.data[23:8]};
