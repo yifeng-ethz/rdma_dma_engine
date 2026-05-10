@@ -3718,6 +3718,357 @@ package rdma_dma_engine_pkg;
       check_conservation(tag);
     endtask
 
+    task run_profile_latency_case(
+      input string tag,
+      input int unsigned opq_words,
+      input int unsigned wready_lag,
+      input int unsigned bvalid_lag,
+      input int unsigned min_cycles,
+      input int unsigned max_cycles,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      int unsigned cycle_count;
+
+      stop_monitor = 1'b0;
+      cycle_count = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n === 1'b1)
+              cycle_count++;
+          end
+        end
+      join_none
+
+      run_profile_single_load_case(.tag(tag), .opq_words(opq_words),
+                                   .idle_after_each(0),
+                                   .wready_lag(wready_lag),
+                                   .bvalid_lag(bvalid_lag),
+                                   .sqe_id(sqe_id),
+                                   .sequence_no(sequence_no));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+
+      if (cycle_count < min_cycles)
+        `uvm_error(tag, $sformatf("latency cycles got=%0d expected >=%0d",
+                                  cycle_count, min_cycles))
+      if ((max_cycles != 0) && (cycle_count > max_cycles))
+        `uvm_error(tag, $sformatf("latency cycles got=%0d expected <=%0d",
+                                  cycle_count, max_cycles))
+    endtask
+
+    task run_profile_average_latency_case(
+      input string tag,
+      input int unsigned job_count,
+      input int unsigned words_per_job,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      int unsigned cycle_count;
+      int unsigned avg_cycles;
+
+      stop_monitor = 1'b0;
+      cycle_count = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n === 1'b1)
+              cycle_count++;
+          end
+        end
+      join_none
+
+      run_profile_job_stream_case(.tag(tag), .job_count(job_count),
+                                  .words_per_job(words_per_job),
+                                  .two_segment(1'b0),
+                                  .mixed_span(1'b0),
+                                  .random_sqe(1'b0),
+                                  .gap_cycles(0),
+                                  .variable_lag(1'b0),
+                                  .sqe_id(sqe_id),
+                                  .sequence_no(sequence_no));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      avg_cycles = (job_count == 0) ? 0 : (cycle_count / job_count);
+      if (avg_cycles == 0)
+        `uvm_error(tag, "average latency did not accumulate")
+    endtask
+
+    task run_profile_halt_latency_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned clean_cycles;
+      int unsigned halt_cycles;
+      bit stop_monitor;
+
+      stop_monitor = 1'b0;
+      clean_cycles = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n === 1'b1)
+              clean_cycles++;
+          end
+        end
+      join_none
+      run_dma_job(.tag({tag, "_clean"}), .opq_words(128),
+                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+
+      stop_monitor = 1'b0;
+      halt_cycles = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n === 1'b1)
+              halt_cycles++;
+          end
+        end
+      join_none
+      run_halt_count_job(.tag({tag, "_halt"}), .dropped_words(32),
+                         .sqe_id(sqe_id + 16'd1),
+                         .sequence_no(sequence_no + 32'd1));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+
+      if (halt_cycles <= clean_cycles)
+        `uvm_error(tag, $sformatf("halt latency got=%0d clean=%0d",
+                                  halt_cycles, clean_cycles))
+    endtask
+
+    task run_profile_fifo_hold_case(
+      input string tag,
+      input int unsigned target_level,
+      input int unsigned hold_cycles,
+      input bit expect_almost_full,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      int unsigned accepted_words;
+      int unsigned lineage_id;
+      longint unsigned sum_level;
+      int unsigned avg_level;
+      bit level_bad;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      accepted_words = target_level * RDMA_DMA_OPQ_PER_BEAT;
+      expect_simple_status_job(64'(accepted_words + 1) * 64'd4,
+                               32'(accepted_words + 1) * 32'd4,
+                               32'd0, expected_status, status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 50000;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0040_0000,
+                           64'h0000_0000_0001_0000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+
+      lineage_id = next_lineage_id;
+      for (int unsigned word_idx = 0; word_idx < accepted_words; word_idx++) begin
+        lineage_id++;
+        drive_direct_opq_word({8'h00, sequence_no[15:0], word_idx[7:0]},
+                              1'b0, sequence_no, lineage_id);
+      end
+      wait_cycles(2);
+      if (vif.dbg1_fifo_level !== target_level[8:0])
+        `uvm_error(tag, $sformatf("fifo level got=%0d expected=%0d",
+                                  vif.dbg1_fifo_level, target_level))
+      if (expect_almost_full &&
+          (vif.dbg1_fifo_almost_full !== 1'b1))
+        `uvm_error(tag, "fifo_almost_full did not assert during hold")
+
+      sum_level = 0;
+      level_bad = 1'b0;
+      for (int unsigned cycle = 0; cycle < hold_cycles; cycle++) begin
+        @(posedge vif.clk);
+        sum_level += vif.dbg1_fifo_level;
+        if (vif.dbg1_fifo_level !== target_level[8:0])
+          level_bad = 1'b1;
+      end
+      avg_level = (hold_cycles == 0) ? 0 : int'(sum_level / hold_cycles);
+      if (avg_level != target_level)
+        `uvm_error(tag, $sformatf("fifo avg got=%0d expected=%0d",
+                                  avg_level, target_level))
+      if (level_bad)
+        `uvm_error(tag, "fifo level changed during host-stalled hold window")
+
+      env.axi_cfg.wready_lag = 0;
+      for (int unsigned cycle = 0; cycle < 20000; cycle++) begin
+        @(posedge vif.clk);
+        if (!vif.dbg1_fifo_almost_full)
+          break;
+      end
+      accepted_words++;
+      lineage_id++;
+      drive_direct_opq_word({8'h00, sequence_no[15:0], accepted_words[7:0]},
+                            1'b1, sequence_no, lineage_id);
+      wait_for_done(500000);
+      wait_cycles(2);
+      next_lineage_id = lineage_id;
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      env.axi_cfg.bvalid_lag = 1;
+      check_status_bit(tag, "status[HALT]", RDMA_DMA_ST_HALT, 1'b0);
+    endtask
+
+    task run_profile_fifo_oscillation_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_fifo_fill_drain_case(.tag({tag, "_cycle0"}), .sqe_id(sqe_id),
+                               .check_fill(1'b1),
+                               .check_empty_after_done(1'b1),
+                               .sequence_no(sequence_no));
+      run_fifo_fill_drain_case(.tag({tag, "_cycle1"}), .sqe_id(sqe_id + 16'd1),
+                               .check_fill(1'b1),
+                               .check_empty_after_done(1'b1),
+                               .sequence_no(sequence_no + 32'd1));
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd2);
+    endtask
+
+    task run_profile_dbg1_invariant_soak_case(
+      input string tag,
+      input int unsigned soak_cycles,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit invariant_bad;
+      int unsigned max_level;
+
+      invariant_bad = 1'b0;
+      max_level = 0;
+      fork
+        begin
+          run_profile_job_stream_case(.tag({tag, "_jobs"}), .job_count(32),
+                                      .words_per_job(128),
+                                      .two_segment(1'b0),
+                                      .mixed_span(1'b1),
+                                      .random_sqe(1'b1),
+                                      .gap_cycles(1),
+                                      .variable_lag(1'b1),
+                                      .sqe_id(sqe_id),
+                                      .sequence_no(sequence_no));
+        end
+        begin
+          for (int unsigned cycle = 0; cycle < soak_cycles; cycle++) begin
+            @(posedge vif.clk);
+            if (vif.dbg1_fifo_level > max_level)
+              max_level = vif.dbg1_fifo_level;
+            if (vif.dbg1_fifo_level > 9'd192)
+              invariant_bad = 1'b1;
+            if (vif.dbg1_packer_slot_idx >= RDMA_DMA_OPQ_PER_BEAT[3:0])
+              invariant_bad = 1'b1;
+            if (vif.dbg1_writer_state > 4'd5)
+              invariant_bad = 1'b1;
+          end
+        end
+      join
+      if (invariant_bad)
+        `uvm_error(tag, "dbg1 invariant monitor detected an illegal state")
+      if (max_level == 0)
+        `uvm_error(tag, "dbg1 soak did not observe FIFO residency")
+    endtask
+
+    task run_profile_halt_accounting_soak_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [31:0] halt_before;
+      bit [31:0] halt_after;
+
+      halt_before = vif.cnt_halt;
+      run_halt_count_job(.tag(tag), .dropped_words(64),
+                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+      halt_after = vif.cnt_halt;
+      if ((halt_after - halt_before) < 32'd64)
+        `uvm_error(tag, $sformatf("cnt_halt delta got=%0d expected >=64",
+                                  halt_after - halt_before))
+      wait_cycles(10000);
+      check_u32_equal(tag, "cnt_halt after idle soak", vif.cnt_halt,
+                      halt_after);
+    endtask
+
+    task run_profile_fifo_histogram_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      bit saw_empty;
+      bit saw_active;
+      bit saw_burst_level;
+
+      stop_monitor = 1'b0;
+      saw_empty = 1'b0;
+      saw_active = 1'b0;
+      saw_burst_level = 1'b0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.dbg1_fifo_level == 9'd0)
+              saw_empty = 1'b1;
+            if ((vif.dbg1_fifo_level > 9'd0) &&
+                (vif.dbg1_fifo_level < RDMA_DMA_MAX_BURST_BEATS[8:0]))
+              saw_active = 1'b1;
+            if (vif.dbg1_fifo_level >= RDMA_DMA_MAX_BURST_BEATS[8:0])
+              saw_burst_level = 1'b1;
+          end
+        end
+      join_none
+      run_profile_single_load_case(.tag(tag), .opq_words(4096),
+                                   .idle_after_each(0),
+                                   .wready_lag(8),
+                                   .bvalid_lag(32),
+                                   .sqe_id(sqe_id),
+                                   .sequence_no(sequence_no));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (!saw_empty || !saw_active || !saw_burst_level)
+        `uvm_error(tag, "fifo histogram did not populate empty, active, and burst bins")
+    endtask
+
+    task run_profile_random_host_lag_case(
+      input string tag,
+      input int unsigned job_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      for (int unsigned idx = 0; idx < job_count; idx++) begin
+        int unsigned lag_v;
+        lag_v = (idx * 37 + 11) % 101;
+        run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
+                    .opq_words(32 + ((idx * 19) % 96)),
+                    .send_eoe(1'b1),
+                    .wready_lag(lag_v),
+                    .bvalid_lag(1 + ((idx * 23) % 100)),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx),
+                    .timeout_cycles(700000));
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      job_count[31:0]);
+      check_conservation(tag);
+    endtask
+
     task run_halt_count_job(
       input string tag,
       input int unsigned dropped_words = 10,
@@ -5686,6 +6037,114 @@ package rdma_dma_engine_pkg;
             32: begin
               run_profile_halt_one_of_five_case(.tag(id), .sqe_id(sqe_id),
                                                 .sequence_no(num));
+            end
+            default: begin
+              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+            end
+          endcase
+          return;
+        end
+        if (num <= 48) begin
+          case (num)
+            33: begin
+              run_profile_latency_case(.tag(id), .opq_words(1024),
+                                       .wready_lag(0), .bvalid_lag(1),
+                                       .min_cycles(1), .max_cycles(100000),
+                                       .sqe_id(sqe_id), .sequence_no(num));
+            end
+            34: begin
+              run_profile_latency_case(.tag(id), .opq_words(4096),
+                                       .wready_lag(12), .bvalid_lag(32),
+                                       .min_cycles(4096), .max_cycles(0),
+                                       .sqe_id(sqe_id), .sequence_no(num));
+            end
+            35: begin
+              run_profile_average_latency_case(.tag(id), .job_count(100),
+                                               .words_per_job(16),
+                                               .sqe_id(sqe_id),
+                                               .sequence_no(num));
+            end
+            36: begin
+              run_profile_halt_latency_case(.tag(id), .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            end
+            37: begin
+              run_profile_fifo_hold_case(.tag(id), .target_level(128),
+                                         .hold_cycles(10000),
+                                         .expect_almost_full(1'b0),
+                                         .sqe_id(sqe_id),
+                                         .sequence_no(num));
+            end
+            38: begin
+              run_profile_fifo_hold_case(.tag(id), .target_level(192),
+                                         .hold_cycles(2048),
+                                         .expect_almost_full(1'b1),
+                                         .sqe_id(sqe_id),
+                                         .sequence_no(num));
+            end
+            39: begin
+              run_profile_fifo_oscillation_case(.tag(id), .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            end
+            40: begin
+              run_profile_fifo_hold_case(.tag(id), .target_level(192),
+                                         .hold_cycles(1000),
+                                         .expect_almost_full(1'b1),
+                                         .sqe_id(sqe_id),
+                                         .sequence_no(num));
+            end
+            41: begin
+              run_profile_dbg1_invariant_soak_case(.tag(id),
+                                                   .soak_cycles(100000),
+                                                   .sqe_id(sqe_id),
+                                                   .sequence_no(num));
+            end
+            42: begin
+              run_profile_halt_accounting_soak_case(.tag(id),
+                                                    .sqe_id(sqe_id),
+                                                    .sequence_no(num));
+            end
+            43: begin
+              run_profile_fifo_histogram_case(.tag(id), .sqe_id(sqe_id),
+                                              .sequence_no(num));
+            end
+            44: begin
+              run_profile_single_load_case(.tag(id), .opq_words(100000),
+                                           .idle_after_each(0),
+                                           .wready_lag(0), .bvalid_lag(1),
+                                           .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            45: begin
+              run_profile_job_stream_case(.tag(id), .job_count(100),
+                                          .words_per_job(32),
+                                          .two_segment(1'b0),
+                                          .mixed_span(1'b0),
+                                          .random_sqe(1'b0),
+                                          .gap_cycles(0),
+                                          .variable_lag(1'b0),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            46: begin
+              run_profile_job_stream_case(.tag(id), .job_count(32),
+                                          .words_per_job(128),
+                                          .two_segment(1'b0),
+                                          .mixed_span(1'b1),
+                                          .random_sqe(1'b1),
+                                          .gap_cycles(1),
+                                          .variable_lag(1'b1),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            47: begin
+              run_halt_count_job(.tag(id), .dropped_words(32),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            48: begin
+              run_profile_random_host_lag_case(.tag(id), .job_count(32),
+                                               .sqe_id(sqe_id),
+                                               .sequence_no(num));
             end
             default: begin
               run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
