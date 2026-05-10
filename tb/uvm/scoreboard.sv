@@ -148,7 +148,8 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
       end else begin
         exp = expected_beats.pop_front();
         if (item.data !== exp.data)
-          note_mismatch("WDATA mismatch against reference packer");
+          note_mismatch($sformatf(
+            "WDATA mismatch got=0x%064h expected=0x%064h", item.data, exp.data));
         if (item.strb !== exp.strb)
           note_mismatch($sformatf("WSTRB mismatch got=0x%08h expected=0x%08h", item.strb, exp.strb));
         if (!item.last)
@@ -254,4 +255,3 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
 endclass
 
 `endif
-

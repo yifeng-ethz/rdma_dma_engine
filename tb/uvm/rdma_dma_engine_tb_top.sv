@@ -8,9 +8,36 @@ module rdma_dma_engine_tb_top;
   `include "uvm_macros.svh"
 
   localparam int unsigned DMA_DATA_W = 256;
+  localparam int unsigned DBG2_META_W = 136;
   localparam int unsigned DEBUG = `DEBUG_LEVEL;
 
   rdma_dma_engine_if #(.DMA_DATA_W(DMA_DATA_W)) dut_if();
+  logic [DBG2_META_W-1:0] dbg2_meta_packed;
+  logic [8*DBG2_META_W-1:0] dbg2_writer_meta_packed;
+  logic [7:0] dbg2_writer_valid_mask;
+
+  assign dbg2_meta_packed = {
+    4'h0,
+    dut_if.dbg2_meta_lane,
+    dut_if.dbg2_meta_hit_id,
+    dut_if.dbg2_meta_source_ts,
+    dut_if.dbg2_meta_sequence_no
+  };
+
+  assign dut_if.dbg2_writer_meta_valid_mask = dbg2_writer_valid_mask;
+  generate
+    for (genvar dbg2_slot = 0; dbg2_slot < 8; dbg2_slot++) begin : gen_dbg2_unpack
+      localparam int unsigned META_BASE = dbg2_slot * DBG2_META_W;
+      assign dut_if.dbg2_writer_meta_lane[dbg2_slot*4 +: 4] =
+        dbg2_writer_meta_packed[META_BASE + 128 +: 4];
+      assign dut_if.dbg2_writer_meta_hit_id[dbg2_slot*32 +: 32] =
+        dbg2_writer_meta_packed[META_BASE + 96 +: 32];
+      assign dut_if.dbg2_writer_meta_source_ts[dbg2_slot*64 +: 64] =
+        dbg2_writer_meta_packed[META_BASE + 32 +: 64];
+      assign dut_if.dbg2_writer_meta_sequence_no[dbg2_slot*32 +: 32] =
+        dbg2_writer_meta_packed[META_BASE +: 32];
+    end
+  endgenerate
 
   initial begin
     dut_if.clk = 1'b0;
@@ -72,21 +99,15 @@ module rdma_dma_engine_tb_top;
     .dbg1_aw_inflight(dut_if.dbg1_aw_inflight),
     .dbg1_w_beats_remaining(dut_if.dbg1_w_beats_remaining),
     .dbg1_b_outstanding(dut_if.dbg1_b_outstanding),
-    .dbg1_packer_slot_idx(dut_if.dbg1_packer_slot_idx),
+    .dbg1_packer_slot(dut_if.dbg1_packer_slot_idx),
     .dbg1_packer_pending_eoe(dut_if.dbg1_packer_pending_eoe),
     .dbg1_writer_state(dut_if.dbg1_writer_state),
     .dbg1_halt_pulse(dut_if.dbg1_halt_pulse),
     .dbg2_meta_valid(dut_if.dbg2_meta_valid),
-    .dbg2_meta_lane(dut_if.dbg2_meta_lane),
-    .dbg2_meta_hit_id(dut_if.dbg2_meta_hit_id),
-    .dbg2_meta_source_ts(dut_if.dbg2_meta_source_ts),
-    .dbg2_meta_sequence_no(dut_if.dbg2_meta_sequence_no),
+    .dbg2_meta(dbg2_meta_packed),
     .dbg2_writer_meta_valid(dut_if.dbg2_writer_meta_valid),
-    .dbg2_writer_meta_valid_mask(dut_if.dbg2_writer_meta_valid_mask),
-    .dbg2_writer_meta_lane(dut_if.dbg2_writer_meta_lane),
-    .dbg2_writer_meta_hit_id(dut_if.dbg2_writer_meta_hit_id),
-    .dbg2_writer_meta_source_ts(dut_if.dbg2_writer_meta_source_ts),
-    .dbg2_writer_meta_sequence_no(dut_if.dbg2_writer_meta_sequence_no)
+    .dbg2_writer_meta(dbg2_writer_meta_packed),
+    .dbg2_writer_valid_mask(dbg2_writer_valid_mask)
   );
 
   default clocking cb @(posedge dut_if.clk); endclocking
@@ -131,4 +152,3 @@ module rdma_dma_engine_tb_top;
     end
   end
 endmodule
-

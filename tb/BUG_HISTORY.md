@@ -40,8 +40,45 @@ Historical formal note:
 | bug_id | class | severity | encounterability | status | first seen | commit | summary |
 |---|---|---|---|---|---|---|---|
 | [BUG-000-H](#bug-000-h-bug-history-seeded-empty-at-dv-bring-up) | H | non-datapath-refactor | directed-only (DV bring-up bookkeeping) | fixed | DV bring-up | `pending` | BUG_HISTORY.md seeded empty at DV bring-up so the ledger lints clean before any real RTL/harness bug surfaces. |
+| [BUG-001-R](#bug-001-r-packer-word-order-reverses-dv-plan-msb-first-contract) | R | soft error | common (single full DMA word) | open | B002 dual-debug smoke | `pending` | Packer inserts OPQ words LSB-first while `DV_PLAN.md` section 3.2 requires MSB-first. |
 
 ## 2026-05-10
+
+### BUG-001-R: Packer word order reverses DV plan MSB-first contract
+- First seen in:
+  - `make -C rdma_dma_engine/tb/uvm regress` on `2026-05-10`
+  - `B002` under `DEBUG_LEVEL=1` and `DEBUG_LEVEL=2`
+- Symptom:
+  - `B001` reset/idle passes in both debug modes with zero scoreboard
+    residuals
+  - `B002` reaches one full DMA write in both debug modes:
+    `opq=8 aw=1 w=1 b=1 job_done=1`
+  - the contract scoreboard reports one `WDATA` mismatch in each debug mode,
+    and `scripts/cross_validate_dbg.py` rejects both scorecards with
+    `summary.mismatches=1`
+- Root cause:
+  - `tb/DV_PLAN.md` section 3.2 requires eight 32-bit OPQ words to pack
+    MSB-first into the 256-bit AXI4 W beat
+  - `rtl/rdma_dma_packer.sv` currently inserts `word_data` at
+    `[slot_index*OPQ_DATA_W +: OPQ_DATA_W]`, which places the first accepted
+    OPQ word in the least-significant 32-bit slot
+- Fix status:
+  - state: open; Phase B smoke closure is blocked until the RTL pack order or
+    written DV contract is reconciled and `B002` passes both debug levels
+  - mechanism: no repair in this commit; the UVM scoreboard remains
+    contract-based and continues to fail the reversed payload ordering
+  - before_fix_outcome: `make -C rdma_dma_engine/tb/uvm regress` fails
+    `cross_validate_dbg.py` after both `B002` scorecards report one mismatch
+  - after_fix_outcome: pending
+  - potential_hazard: common; every full or partial DMA payload can be
+    host-visible with reversed 32-bit slot ordering relative to the contract
+  - Claude Opus 4.7 xhigh review decision: pending / not run
+- Runtime / coverage context:
+  - first failing scoreboard sample is at `178 ns` in both debug modes
+  - `DEBUG_LEVEL=2` emits all eight lineage sidecar entries, so the live
+    blocker is functional payload ordering rather than DEBUG sidecar residual
+- Commit:
+  - pending
 
 ### BUG-000-H: BUG_HISTORY.md seeded empty at DV bring-up
 - First seen in:

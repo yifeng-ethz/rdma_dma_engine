@@ -56,21 +56,15 @@ module rdma_dma_engine #(
   output logic [3:0] dbg1_aw_inflight,
   output logic [7:0] dbg1_w_beats_remaining,
   output logic [3:0] dbg1_b_outstanding,
-  output logic [3:0] dbg1_packer_slot_idx,
+  output logic [3:0] dbg1_packer_slot,
   output logic dbg1_packer_pending_eoe,
   output logic [3:0] dbg1_writer_state,
   output logic dbg1_halt_pulse,
   input  logic dbg2_meta_valid,
-  input  logic [3:0] dbg2_meta_lane,
-  input  logic [31:0] dbg2_meta_hit_id,
-  input  logic [63:0] dbg2_meta_source_ts,
-  input  logic [31:0] dbg2_meta_sequence_no,
+  input  logic [135:0] dbg2_meta,
   output logic dbg2_writer_meta_valid,
-  output logic [7:0] dbg2_writer_meta_valid_mask,
-  output logic [31:0] dbg2_writer_meta_lane,
-  output logic [255:0] dbg2_writer_meta_hit_id,
-  output logic [511:0] dbg2_writer_meta_source_ts,
-  output logic [255:0] dbg2_writer_meta_sequence_no
+  output logic [1087:0] dbg2_writer_meta,
+  output logic [7:0] dbg2_writer_valid_mask
 );
   localparam int unsigned DMA_BYTES = DMA_DATA_W / 8;
   localparam int unsigned OPQ_PER_DMA = DMA_DATA_W / 32;
@@ -113,6 +107,12 @@ module rdma_dma_engine #(
   logic [OPQ_PER_DMA*64-1:0] pending_ts_q;
   logic [OPQ_PER_DMA*32-1:0] pending_seq_q;
   logic [31:0] current_job_bytes_q;
+  logic [7:0] dbg2_writer_valid_mask_i;
+
+  wire [3:0] dbg2_meta_lane = dbg2_meta[131:128];
+  wire [31:0] dbg2_meta_hit_id = dbg2_meta[127:96];
+  wire [63:0] dbg2_meta_source_ts = dbg2_meta[95:32];
+  wire [31:0] dbg2_meta_sequence_no = dbg2_meta[31:0];
 
   function automatic logic align_error(
     input logic [63:0] seg0_addr,
@@ -162,16 +162,25 @@ module rdma_dma_engine #(
   assign dbg1_aw_inflight = (DEBUG_LEVEL >= 1 && state_q inside {WR_AW, WR_W, WR_B}) ? 4'd1 : 4'd0;
   assign dbg1_w_beats_remaining = (DEBUG_LEVEL >= 1 && state_q == WR_W) ? 8'd1 : 8'd0;
   assign dbg1_b_outstanding = (DEBUG_LEVEL >= 1 && state_q == WR_B) ? 4'd1 : 4'd0;
-  assign dbg1_packer_slot_idx = (DEBUG_LEVEL >= 1) ? slot_q : 4'h0;
+  assign dbg1_packer_slot = (DEBUG_LEVEL >= 1) ? slot_q : 4'h0;
   assign dbg1_packer_pending_eoe = (DEBUG_LEVEL >= 1) ? pending_eoe_q : 1'b0;
   assign dbg1_writer_state = (DEBUG_LEVEL >= 1) ? state_q : 4'h0;
   assign dbg1_halt_pulse = 1'b0;
   assign dbg2_writer_meta_valid = (DEBUG_LEVEL >= 2 && state_q == WR_W && m_axi_wready);
-  assign dbg2_writer_meta_valid_mask = (DEBUG_LEVEL >= 2) ? ((8'h01 << pending_slots_q) - 8'h01) : 8'h00;
-  assign dbg2_writer_meta_lane = (DEBUG_LEVEL >= 2) ? pending_lane_q : 32'h0;
-  assign dbg2_writer_meta_hit_id = (DEBUG_LEVEL >= 2) ? pending_hit_q : 256'h0;
-  assign dbg2_writer_meta_source_ts = (DEBUG_LEVEL >= 2) ? pending_ts_q : 512'h0;
-  assign dbg2_writer_meta_sequence_no = (DEBUG_LEVEL >= 2) ? pending_seq_q : 256'h0;
+  assign dbg2_writer_valid_mask_i = (8'h01 << pending_slots_q) - 8'h01;
+  assign dbg2_writer_valid_mask = (DEBUG_LEVEL >= 2) ? dbg2_writer_valid_mask_i : 8'h00;
+
+  generate
+    for (genvar dbg2_slot = 0; dbg2_slot < OPQ_PER_DMA; dbg2_slot++) begin : gen_stub_dbg2_pack
+      assign dbg2_writer_meta[dbg2_slot*136 +: 136] = (DEBUG_LEVEL >= 2) ? {
+        4'h0,
+        pending_lane_q[dbg2_slot*4 +: 4],
+        pending_hit_q[dbg2_slot*32 +: 32],
+        pending_ts_q[dbg2_slot*64 +: 64],
+        pending_seq_q[dbg2_slot*32 +: 32]
+      } : 136'h0;
+    end
+  endgenerate
 
   always_ff @(posedge clk or negedge reset_n) begin
     if (!reset_n) begin
@@ -371,9 +380,8 @@ module rdma_dma_engine #(
 
   // TODO(RTL_PLAN.md section 5): confirm the production top-level name
   // for clear_counters once sibling RTL is committed.
-  // TODO(RTL_PLAN.md section 3.11): confirm the packed dbg2 writer sidecar
-  // port names once sibling RTL exposes the simulation-only shadow path.
+  // TODO(RTL_PLAN.md section 3.11): keep the opaque 136-bit DEBUG=2 tuple
+  // packing aligned with the sibling RTL and DV_HARNESS lineage contract.
 endmodule
 
 `endif
-
