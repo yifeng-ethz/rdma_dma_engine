@@ -1,13 +1,13 @@
-# `opq_dma_engine` — RTL Plan
+# `rdma_dma_engine` — RTL Plan
 
 Status: **PLAN — pending review.** Part of the
-[`opq_rdma_subsystem`](../opq_rdma_subsystem/ARCHITECTURE_PLAN.md). Read the
+[`rdma_subsystem`](../rdma_subsystem/ARCHITECTURE_PLAN.md). Read the
 parent architecture plan first for the SQ/CQ contract context.
 
 ## 1. Role within the subsystem
 
 Pure data mover. Knows nothing about SQ rings, CQ rings, or doorbells.
-Programmed by the `opq_run_manager` with `(buf_addr, buf_len_bytes, sqe_id)`
+Programmed by the `rdma_run_manager` with `(buf_addr, buf_len_bytes, sqe_id)`
 and drains an OPQ-side data stream into that named host-DRAM region using
 an Avalon-MM master. Reports back `(bytes_written, status, sqe_id)` on
 completion.
@@ -17,10 +17,10 @@ Owns the high-bandwidth path. Lives between OPQ egress and the host.
 ## 2. Module hierarchy
 
 ```
-opq_dma_engine.sv          (top — wires the three sub-modules)
-├── opq_dma_packer.sv      (32b → 256b accumulator with EOE sideband)
-├── opq_dma_data_fifo.sv   (256b SCFIFO + sideband bits, ~256 entries)
-└── opq_dma_writer.sv      (Avalon-MM burst master, programmable per-job)
+rdma_dma_engine.sv          (top — wires the three sub-modules)
+├── rdma_dma_packer.sv      (32b → 256b accumulator with EOE sideband)
+├── rdma_dma_data_fifo.sv   (256b SCFIFO + sideband bits, ~256 entries)
+└── rdma_dma_writer.sv      (Avalon-MM burst master, programmable per-job)
 ```
 
 ## 3. Top-level interface
@@ -29,7 +29,7 @@ All host-DRAM access is **AXI4 (full)** so the supercore can be assembled
 on a non-Merlin / pure-RTL fabric. The OPQ side is **AXI4-Stream**.
 
 ```systemverilog
-module opq_dma_engine #(
+module rdma_dma_engine #(
     parameter int unsigned DMA_DATA_W       = 256,   // AXI4 write data width
     parameter int unsigned MAX_BURST_BEATS  = 16,    // AXI4 AWLEN cap
     parameter int unsigned SEG_QUANTUM_BYTES= 4096   // 4 KB span granularity
@@ -44,7 +44,7 @@ module opq_dma_engine #(
     input  logic                 s_axis_opq_tlast,    // = OPQ eop
     input  logic [1:0]           s_axis_opq_tuser,    // [0]=sop
 
-    // Two-segment job interface from opq_run_manager
+    // Two-segment job interface from rdma_run_manager
     input  logic                 job_req,
     input  logic [63:0]          job_seg0_addr,
     input  logic [63:0]          job_seg0_span,
@@ -103,7 +103,7 @@ module opq_dma_engine #(
 
 ## 4. Submodule specs
 
-### 4.1 `opq_dma_packer.sv`
+### 4.1 `rdma_dma_packer.sv`
 
 - Input: 32b `opq_data`, `opq_valid`, `opq_sop`, `opq_eop`.
 - Output: 256b `data`, `valid`, `last_in_event`, `bytes_in_word[5:0]` (always
@@ -119,11 +119,11 @@ sum(opq_valid 32b words accepted) == sum(non-zero 32b slots emitted)
 ```
 
 This module is the cosim-validated prototype already at
-`tb_int/feb_swb_corun/sv/swb_opq_dma_packer.sv`. The IP version moves it
-to `rtl/opq_dma_packer.sv`, adds `bytes_in_word` and `last_in_event`
+`tb_int/feb_swb_corun/sv/swb_rdma_dma_packer.sv`. The IP version moves it
+to `rtl/rdma_dma_packer.sv`, adds `bytes_in_word` and `last_in_event`
 sideband, otherwise identical.
 
-### 4.2 `opq_dma_data_fifo.sv`
+### 4.2 `rdma_dma_data_fifo.sv`
 
 - 256b data + sideband (`last_in_event`, `bytes_in_word`).
 - Depth 256 (default), parameterizable.
@@ -132,7 +132,7 @@ sideband, otherwise identical.
   native Qsys integration.
 - Almost-full threshold 192 (3/4) drives `i_dma_halffull` back to packer.
 
-### 4.3 `opq_dma_writer.sv` (AXI4 master with two-segment scatter)
+### 4.3 `rdma_dma_writer.sv` (AXI4 master with two-segment scatter)
 
 Programmable per-job state machine. Issues AXI4 INCR bursts of `DMA_DATA_W`
 (256 b) beats. Tracks per-segment progress and switches segments when
@@ -203,7 +203,7 @@ All counters cleared by the run_manager `CTRL.reset_counters` write
 
 ## 6. Validation plan (unit-level cosim)
 
-Lives at `tb/uvm/opq_dma_engine_tb_top.sv`.
+Lives at `tb/uvm/rdma_dma_engine_tb_top.sv`.
 
 | # | Test                                  | Pass criterion |
 |---|---------------------------------------|----------------|
@@ -219,16 +219,16 @@ Lives at `tb/uvm/opq_dma_engine_tb_top.sv`.
 ## 7. CSR exposure
 
 This IP has **no host-visible CSR**. Counters are sideband to the
-`opq_run_manager` which surfaces them in BAR1 at `0x3C / 0x40 / 0x44 / 0x48`.
+`rdma_run_manager` which surfaces them in BAR1 at `0x3C / 0x40 / 0x44 / 0x48`.
 
 This is intentional — a single point of CSR truth at the run manager keeps
 the host interface flat (no per-IP BAR aperture juggling).
 
 ## 8. Synthesis sign-off
 
-Standalone Quartus project at `syn/quartus/opq_dma_engine_standalone.qsf`.
+Standalone Quartus project at `syn/quartus/rdma_dma_engine_standalone.qsf`.
 Sign-off corner: 1.1× target frequency. Top-level entity is
-`opq_dma_engine`. AVMM master tied to a dummy slave for the standalone
+`rdma_dma_engine`. AVMM master tied to a dummy slave for the standalone
 fitter.
 
 Default target: 250 MHz (SWB datapath clock). Sign-off at 275 MHz.
@@ -236,34 +236,34 @@ Default target: 250 MHz (SWB datapath clock). Sign-off at 275 MHz.
 ## 9. Files
 
 ```
-opq_dma_engine/
+rdma_dma_engine/
 ├── README.md
 ├── RTL_PLAN.md                      (this file)
 ├── doc/
 │   └── (no host-visible CSR; nothing here Phase 1)
 ├── rtl/
-│   ├── opq_dma_engine.sv
-│   ├── opq_dma_packer.sv
-│   ├── opq_dma_data_fifo.sv
-│   └── opq_dma_writer.sv
+│   ├── rdma_dma_engine.sv
+│   ├── rdma_dma_packer.sv
+│   ├── rdma_dma_data_fifo.sv
+│   └── rdma_dma_writer.sv
 ├── tb/uvm/
-│   ├── opq_dma_engine_tb_top.sv
+│   ├── rdma_dma_engine_tb_top.sv
 │   └── Makefile
 ├── syn/quartus/
-│   └── opq_dma_engine_standalone.qsf
-├── opq_dma_engine_hw.tcl            (Qsys IP)
+│   └── rdma_dma_engine_standalone.qsf
+├── rdma_dma_engine_hw.tcl            (Qsys IP)
 ├── Makefile                         (mu3e-ip-cores standard targets)
 └── .git/                            (local Phase 1)
 ```
 
 ## 10. Implementation order
 
-1. `rtl/opq_dma_packer.sv` (port from prototype, add sideband bits)
-2. `rtl/opq_dma_data_fifo.sv`
-3. `rtl/opq_dma_writer.sv`
-4. `rtl/opq_dma_engine.sv` (top wiring)
-5. `tb/uvm/opq_dma_engine_tb_top.sv` + tests 1..8
-6. `opq_dma_engine_hw.tcl` for Qsys instantiability
+1. `rtl/rdma_dma_packer.sv` (port from prototype, add sideband bits)
+2. `rtl/rdma_dma_data_fifo.sv`
+3. `rtl/rdma_dma_writer.sv`
+4. `rtl/rdma_dma_engine.sv` (top wiring)
+5. `tb/uvm/rdma_dma_engine_tb_top.sv` + tests 1..8
+6. `rdma_dma_engine_hw.tcl` for Qsys instantiability
 7. `syn/quartus/` standalone signoff
 
 ## 11. Risks specific to this IP
