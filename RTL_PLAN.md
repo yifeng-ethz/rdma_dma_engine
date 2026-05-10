@@ -25,43 +25,81 @@ opq_dma_engine.sv          (top — wires the three sub-modules)
 
 ## 3. Top-level interface
 
+All host-DRAM access is **AXI4 (full)** so the supercore can be assembled
+on a non-Merlin / pure-RTL fabric. The OPQ side is **AXI4-Stream**.
+
 ```systemverilog
-module opq_dma_engine (
-    input  logic         clk,
-    input  logic         reset_n,
+module opq_dma_engine #(
+    parameter int unsigned DMA_DATA_W       = 256,   // AXI4 write data width
+    parameter int unsigned MAX_BURST_BEATS  = 16,    // AXI4 AWLEN cap
+    parameter int unsigned SEG_QUANTUM_BYTES= 4096   // 4 KB span granularity
+) (
+    input  logic                 clk,
+    input  logic                 reset_n,
 
-    // OPQ egress (Avalon-ST sink, 36b)
-    input  logic [35:0]  opq_data,        // {datak[3:0], data[31:0]}
-    input  logic         opq_valid,
-    input  logic         opq_sop,
-    input  logic         opq_eop,
-    output logic         opq_ready,        // tied 1 in Phase 1
+    // OPQ egress (AXI4-Stream sink, 36b TDATA)
+    input  logic [35:0]          s_axis_opq_tdata,    // {datak[3:0], data[31:0]}
+    input  logic                 s_axis_opq_tvalid,
+    output logic                 s_axis_opq_tready,
+    input  logic                 s_axis_opq_tlast,    // = OPQ eop
+    input  logic [1:0]           s_axis_opq_tuser,    // [0]=sop
 
-    // Job interface from opq_run_manager
-    input  logic         job_req,
-    input  logic [63:0]  job_buf_addr,
-    input  logic [31:0]  job_buf_len_bytes,
-    input  logic [15:0]  job_sqe_id,
-    output logic         job_done,
-    output logic [31:0]  job_bytes_written,
-    output logic [15:0]  job_status,        // bit 0=EOE, 1=FULL, 2=HALT
-    output logic [15:0]  job_sqe_id_echo,
+    // Two-segment job interface from opq_run_manager
+    input  logic                 job_req,
+    input  logic [63:0]          job_seg0_addr,
+    input  logic [63:0]          job_seg0_span,
+    input  logic [63:0]          job_seg1_addr,       // 0 if unused
+    input  logic [63:0]          job_seg1_span,       // 0 if unused
+    input  logic [15:0]          job_sqe_id,
+    input  logic [15:0]          job_opcode,
+    output logic                 job_done,
+    output logic [63:0]          job_bytes_written_total,
+    output logic [31:0]          job_seg0_bytes_written,
+    output logic [31:0]          job_seg1_bytes_written,
+    output logic [15:0]          job_status,           // see ARCH §5 status bits
+    output logic [15:0]          job_sqe_id_echo,
+    output logic [31:0]          job_event_count,
+    output logic [63:0]          job_first_event_ts,
+    output logic [63:0]          job_last_event_ts,
 
-    // Avalon-MM master to host DRAM (write-only path used here)
-    output logic [63:0]  avm_address,
-    output logic         avm_write,
-    output logic [255:0] avm_writedata,
-    output logic [31:0]  avm_byteenable,
-    output logic [3:0]   avm_burstcount,
-    input  logic         avm_waitrequest,
+    // AXI4 (full) master, write channel only used by this engine
+    output logic [3:0]           m_axi_awid,
+    output logic [63:0]          m_axi_awaddr,
+    output logic [7:0]           m_axi_awlen,
+    output logic [2:0]           m_axi_awsize,        // = $clog2(DMA_DATA_W/8)
+    output logic [1:0]           m_axi_awburst,       // INCR
+    output logic                 m_axi_awvalid,
+    input  logic                 m_axi_awready,
+    output logic [DMA_DATA_W-1:0]    m_axi_wdata,
+    output logic [DMA_DATA_W/8-1:0]  m_axi_wstrb,
+    output logic                 m_axi_wlast,
+    output logic                 m_axi_wvalid,
+    input  logic                 m_axi_wready,
+    input  logic [3:0]           m_axi_bid,
+    input  logic [1:0]           m_axi_bresp,
+    input  logic                 m_axi_bvalid,
+    output logic                 m_axi_bready,
 
-    // Sideband counters (sampled by run_manager into CSR)
-    output logic [31:0]  cnt_input_w,
-    output logic [31:0]  cnt_bytes_written,
-    output logic [31:0]  cnt_halt,
-    output logic [31:0]  cnt_eoe_observed
+    // Sideband counters
+    output logic [31:0]          cnt_input_w,
+    output logic [31:0]          cnt_bytes_written,
+    output logic [31:0]          cnt_halt,
+    output logic [31:0]          cnt_eoe_observed
 );
 ```
+
+### Job-interface contract
+
+- `job_seg{0,1}_addr` MUST be 4 KB-aligned. `job_seg{0,1}_span` MUST be a
+  4 KB multiple. If violated, engine refuses with `status[ALIGN_ERR]=1`
+  (no AXI traffic, immediate `job_done`).
+- If `job_seg1_span == 0`, this is a single-segment job; engine sets
+  `status[SEG0_ONLY]=1` on completion.
+- If drain fills `seg0_span` AND `seg1_span > 0`, engine continues into
+  `seg1` at `seg1_addr`, sets `status[SEG_BOUNDARY_HIT]=1` when crossed.
+- Drain ends on:
+  - `s_axis_opq_tlast` (OPQ EOE) → `status[EOE]=1`
+  - `seg0_span+seg1_span` exhausted → `status[FULL]=1`
 
 ## 4. Submodule specs
 
@@ -94,37 +132,64 @@ sideband, otherwise identical.
   native Qsys integration.
 - Almost-full threshold 192 (3/4) drives `i_dma_halffull` back to packer.
 
-### 4.3 `opq_dma_writer.sv`
+### 4.3 `opq_dma_writer.sv` (AXI4 master with two-segment scatter)
 
-State machine (4 states):
+Programmable per-job state machine. Issues AXI4 INCR bursts of `DMA_DATA_W`
+(256 b) beats. Tracks per-segment progress and switches segments when
+seg0 fills.
 
+States (6):
 ```
 WR_IDLE
   | job_req
+  | (alignment check) seg{0,1}_addr & 0xFFF != 0 OR
+  |                   seg{0,1}_span & 0xFFF != 0 → WR_REPORT_ALIGN_ERR
+  | else → WR_PROGRAM
   v
-WR_BURST                    ← burst beats out: avm_write + burstcount=N
-  | last beat done OR
-  | bytes_remaining < 32  → WR_FINALIZE_PARTIAL
-  | last_in_event from FIFO → WR_REPORT_DONE (status[EOE]=1)
+WR_PROGRAM       ← latch seg0/seg1, set cur_seg=0, cur_addr=seg0_addr,
+                   bytes_left_seg=seg0_span
   v
-WR_FINALIZE_PARTIAL
-  | one final 256b padded beat, status[FULL]=1
+WR_AW            ← drive m_axi_aw{addr,len,size,burst,valid}; awlen sized to
+                    min(fifo_level, MAX_BURST_BEATS-1, beats_left_in_seg-1)
+  | awvalid && awready → latch beats_in_burst
   v
-WR_REPORT_DONE             ← raises job_done, holds (bytes_written, status)
-  | run_manager observes job_done
+WR_W             ← drive m_axi_w{data,strb,last,valid} N beats from FIFO
+  | wlast && wvalid && wready
+  v
+WR_B             ← await m_axi_bvalid; if BRESP != OKAY → status |= AXI_ERR
+  | bvalid && bready
+  v
+[WR_AW]   if more bytes in current segment AND no EOE
+[WR_PROGRAM] if seg0 just exhausted AND seg1_span > 0  ← status[SEG_BOUNDARY_HIT]=1
+[WR_REPORT_DONE] if EOE OR all segments exhausted
+  v
+WR_REPORT_DONE   ← raise job_done, hold (bytes_written, status, ts)
+                   for one cycle until run_manager samples
   v
 WR_IDLE
 ```
 
-Burst sizing: `burstcount = min(fifo_level, MAX_BURST=16, words_remaining)`.
-- `MAX_BURST=16` × 32 B = 512 B (matches Altera AVMM-to-PCIe preferred MPS).
-- `words_remaining = (buf_len_bytes - bytes_emitted) / 32`.
+Burst sizing per AW request:
+```
+beats_left_in_seg = (bytes_left_in_seg + DMA_DATA_W/8 - 1) / (DMA_DATA_W/8)
+beats_in_burst    = min(fifo_level, MAX_BURST_BEATS, beats_left_in_seg)
+m_axi_awlen       = beats_in_burst - 1   // AXI4 convention: AWLEN = beats-1
+m_axi_awsize      = $clog2(DMA_DATA_W/8)
+m_axi_awburst     = 2'b01                 // INCR
+```
 
-Address arithmetic: `avm_address = job_buf_addr + bytes_emitted`. 32-byte
-aligned; the writer asserts that `job_buf_addr[4:0] == 0` at job_req.
+Address arithmetic: `m_axi_awaddr = cur_seg_base + bytes_emitted_in_seg`,
+which stays 4 KB-aligned since spans are 4 KB-multiple. AXI4 `INCR` bursts
+**must not cross 4 KB boundaries** — by construction here, `bytes_in_burst
+≤ 4 KB` since `MAX_BURST_BEATS × DMA_DATA_W/8 = 16 × 32 = 512 B`, so a
+single INCR is always within one 4 KB page.
 
-`avm_byteenable`: all-1s except the last beat of a partial event (which
-zero-enables slots beyond `last_byte_in_word`).
+`m_axi_wstrb`: all-1s except the last beat of an EOE-triggered partial
+write (which zero-strobes slots beyond `last_byte_in_word`).
+
+Per-event timestamp tracking: writer captures the OPQ-side cycle counter
+(passed via packer sideband) at the first and last EOE seen, exposes
+them as `job_first_event_ts` / `job_last_event_ts` for the CQE.
 
 ## 5. Counters (sideband to run_manager)
 
