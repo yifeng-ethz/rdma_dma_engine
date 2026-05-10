@@ -1,7 +1,7 @@
-# rdma_dma_engine Phase B UVM smoke — REPORT index
+# rdma_dma_engine Phase B UVM closure — REPORT index
 
-**DUT:** `rdma_dma_engine` &nbsp; **Date:** `2026-05-10` &nbsp;
-**RTL variant:** `DEBUG_LEVEL=1/2 dual-env smoke` &nbsp; **Seed:** `1`
+**DUT:** `rdma_dma_engine` &nbsp; **Date:** `2026-05-11` &nbsp;
+**RTL variant:** `DEBUG_LEVEL=1/2 Phase B dual-debug` &nbsp; **Seed:** `1`
 
 ## Legend
 
@@ -13,16 +13,16 @@
 
 | status | bucket | planned | evidenced | merged (stmt/branch/cond/expr/fsm_state/fsm_trans/toggle) |
 |:---:|---|---:|---:|---|
-| ⚠️ | [`BASIC`](buckets/BASIC.md) | 128 | 2 | stmt=62.97, branch=30.43, cond=15.97, expr=3.94, fsm_state=0.00, fsm_trans=0.00, toggle=2.96 |
-| ⚠️ | [`EDGE`](buckets/EDGE.md) | 128 | 0 | stmt=n/a, branch=n/a, cond=n/a, expr=n/a, fsm_state=n/a, fsm_trans=n/a, toggle=n/a |
-| ⚠️ | [`PROF`](buckets/PROF.md) | 128 | 0 | stmt=n/a, branch=n/a, cond=n/a, expr=n/a, fsm_state=n/a, fsm_trans=n/a, toggle=n/a |
-| ⚠️ | [`ERROR`](buckets/ERROR.md) | 128 | 0 | stmt=n/a, branch=n/a, cond=n/a, expr=n/a, fsm_state=n/a, fsm_trans=n/a, toggle=n/a |
+| ✅ | [`BASIC`](buckets/BASIC.md) | 128 | 128 | stmt=98.80, branch=98.09, cond=82.35, expr=74.28, fsm_state=100.00, fsm_trans=100.00, toggle=99.28 |
+| ✅ | [`EDGE`](buckets/EDGE.md) | 128 | 128 | stmt=99.20, branch=99.04, cond=82.35, expr=74.28, fsm_state=100.00, fsm_trans=100.00, toggle=99.61 |
+| ✅ | [`PROF`](buckets/PROF.md) | 128 | 128 | stmt=98.01, branch=98.09, cond=85.29, expr=70.00, fsm_state=100.00, fsm_trans=100.00, toggle=99.75 |
+| ✅ | [`ERROR`](buckets/ERROR.md) | 128 | 128 | stmt=98.01, branch=97.14, cond=79.41, expr=80.00, fsm_state=100.00, fsm_trans=100.00, toggle=99.01 |
 
 ## Cross / continuous-frame runs
 
 | status | run_id | kind | build | bucket | seq | txns | cross_pct |
 |:---:|---|---|---|---|---|---:|---:|
-| ✅ | [`rdma_dma_engine_dual_debug_smoke`](cross/rdma_dma_engine_dual_debug_smoke.md) | isolated | dual_debug | BASIC | make -C tb/uvm regress | 2 | 100.0 |
+| ✅ | [`rdma_dma_engine_phase_b_all_dual_debug`](cross/rdma_dma_engine_phase_b_all_dual_debug.md) | isolated | dual_debug | ALL | make -C tb/uvm regress | 36353 | 100.0 |
 
 ## Random long-run cases
 
@@ -36,10 +36,10 @@
 <!-- merged_total_code_coverage is the merge across all evidenced cases in all buckets. -->
 
 - planned_cases = `512`
-- evidenced_cases = `2`
+- evidenced_cases = `512`
 - excluded_cases = `0`
-- merged total code coverage: `stmt=62.97, branch=30.43, cond=15.97, expr=3.94, fsm_state=0.00, fsm_trans=0.00, toggle=2.96`
-- functional coverage: `0.39% (2/512)`
+- merged total code coverage: `stmt=99.60, branch=100.00, cond=85.29, expr=85.71, fsm_state=100.00, fsm_trans=100.00, toggle=99.06`
+- functional coverage: `100.0% (512/512)`
 
 ---
 _[Dashboard](../DV_REPORT.md) &middot; [Coverage](../DV_COV.md)_

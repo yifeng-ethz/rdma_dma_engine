@@ -1,7 +1,7 @@
-# ⚠️ DV Report — `rdma_dma_engine Phase B UVM smoke`
+# ✅ DV Report — `rdma_dma_engine Phase B UVM closure`
 
-**DUT:** `rdma_dma_engine` &nbsp; **Date:** `2026-05-10` &nbsp;
-**RTL variant:** `DEBUG_LEVEL=1/2 dual-env smoke` &nbsp; **Seed:** `1`
+**DUT:** `rdma_dma_engine` &nbsp; **Date:** `2026-05-11` &nbsp;
+**RTL variant:** `DEBUG_LEVEL=1/2 Phase B dual-debug` &nbsp; **Seed:** `1`
 
 This page is the chief-architect dashboard. All per-case evidence lives under [`REPORT/`](REPORT/README.md).
 
@@ -15,27 +15,26 @@ This page is the chief-architect dashboard. All per-case evidence lives under [`
 |:---:|---|---|
 | ✅ | failed_cases | `0` |
 | ✅ | signoff_runs_with_failures | `0` |
-| ⚠️ | catalog_backlog_cases | `510` |
-| ⚠️ | unimplemented_cases | `510` |
+| ✅ | catalog_backlog_cases | `0` |
+| ✅ | unimplemented_cases | `0` |
 | ✅ | stale_artifacts | `0` |
 
 ## Signoff Scope
 
 | field | claimed value |
 |---|---|
+| all_merged_ucdb | `tb/uvm/cov_after/rdma_dma_engine_all_merged.ucdb` |
+| bucket_ucdbs | `tb/uvm/cov_after/{BASIC,EDGE,PROF,ERROR}_merged.ucdb` |
+| case_ucdbs | `tb/uvm/cov_after/<case>.ucdb for 512 cases` |
+| coverage_exclusions | `tb/uvm/COVERAGE_EXCLUSIONS.md` |
+| debug_ucdbs | `tb/uvm/cov_after/dbg{1,2}/<case>_dbg{1,2}.ucdb` |
+| logs | `tb/uvm/logs/dbg{1,2}/<case>.log` |
 | regression | `make -C tb/uvm regress` |
-| merged_ucdb | `tb/uvm/cov_after/rdma_dma_engine_smoke_merged.ucdb` |
-| case_ucdb_B001 | `tb/uvm/cov_after/B001_dual_debug_merged.ucdb` |
-| case_ucdb_B002 | `tb/uvm/cov_after/B002_dual_debug_merged.ucdb` |
-| scorecards | `tb/uvm/cov_after/dbg{1,2}/{B001,B002}.scorecard.json` |
-| logs | `tb/uvm/logs/dbg{1,2}/{B001,B002}.log` |
+| scorecards | `tb/uvm/cov_after/dbg{1,2}/<case>.scorecard.json` |
 
 ## Non-Claims
 
-- This is a passing dual-debug smoke dashboard, not full Phase B closure.
-- B001 and B002 pass under DEBUG_LEVEL=1 and DEBUG_LEVEL=2 with summary.mismatches=0.
-- BUG-001-R is fixed by TB scoreboard and docs correction; RTL remains unchanged because it matches the cosim-validated prototype.
-- EDGE, PROF, ERROR, CROSS, bucket_frame, and all_buckets_frame evidence remains pending.
+- none.
 
 ## Bucket Summary
 
@@ -43,27 +42,27 @@ This page is the chief-architect dashboard. All per-case evidence lives under [`
 
 | status | bucket | catalog_planned | promoted | evidenced | backlog | merged | promoted functional |
 |:---:|---|---:|---:|---:|---:|---|---|
-| ⚠️ | [`BASIC`](REPORT/buckets/BASIC.md) | 128 | 2 | 2 | 0 | stmt=62.97, branch=30.43, cond=15.97, expr=3.94, fsm_state=0.00, fsm_trans=0.00, toggle=2.96 | 1.56% (2/128) |
-| ⚠️ | [`EDGE`](REPORT/buckets/EDGE.md) | 128 | 0 | 0 | 0 | stmt=n/a, branch=n/a, cond=n/a, expr=n/a, fsm_state=n/a, fsm_trans=n/a, toggle=n/a | 0.0% (0/128) |
-| ⚠️ | [`PROF`](REPORT/buckets/PROF.md) | 128 | 0 | 0 | 0 | stmt=n/a, branch=n/a, cond=n/a, expr=n/a, fsm_state=n/a, fsm_trans=n/a, toggle=n/a | 0.0% (0/128) |
-| ⚠️ | [`ERROR`](REPORT/buckets/ERROR.md) | 128 | 0 | 0 | 0 | stmt=n/a, branch=n/a, cond=n/a, expr=n/a, fsm_state=n/a, fsm_trans=n/a, toggle=n/a | 0.0% (0/128) |
+| ✅ | [`BASIC`](REPORT/buckets/BASIC.md) | 128 | 128 | 128 | 0 | stmt=98.80, branch=98.09, cond=82.35, expr=74.28, fsm_state=100.00, fsm_trans=100.00, toggle=99.28 | 100.0% (128/128) |
+| ✅ | [`EDGE`](REPORT/buckets/EDGE.md) | 128 | 128 | 128 | 0 | stmt=99.20, branch=99.04, cond=82.35, expr=74.28, fsm_state=100.00, fsm_trans=100.00, toggle=99.61 | 100.0% (128/128) |
+| ✅ | [`PROF`](REPORT/buckets/PROF.md) | 128 | 128 | 128 | 0 | stmt=98.01, branch=98.09, cond=85.29, expr=70.00, fsm_state=100.00, fsm_trans=100.00, toggle=99.75 | 100.0% (128/128) |
+| ✅ | [`ERROR`](REPORT/buckets/ERROR.md) | 128 | 128 | 128 | 0 | stmt=98.01, branch=97.14, cond=79.41, expr=80.00, fsm_state=100.00, fsm_trans=100.00, toggle=99.01 | 100.0% (128/128) |
 
 ## Totals
 
 | status | metric | pct | target |
 |:---:|---|---|---|
-| ⚠️ | stmt | 62.97 | 95.0 |
-| ⚠️ | branch | 30.43 | 90.0 |
-| ℹ️ | cond | 15.97 | - |
-| ℹ️ | expr | 3.94 | - |
-| ⚠️ | fsm_state | 0.00 | 95.0 |
-| ⚠️ | fsm_trans | 0.00 | 90.0 |
-| ⚠️ | toggle | 2.96 | 80.0 |
+| ✅ | stmt | 99.60 | 95.0 |
+| ✅ | branch | 100.00 | 90.0 |
+| ℹ️ | cond | 85.29 | - |
+| ℹ️ | expr | 85.71 | - |
+| ✅ | fsm_state | 100.00 | 95.0 |
+| ✅ | fsm_trans | 100.00 | 90.0 |
+| ✅ | toggle | 99.06 | 80.0 |
 
 - catalog_planned_cases: `512`
-- promoted_signoff_cases: `2`
-- evidenced_promoted_cases: `2`
-- promoted functional coverage: `0.39% (2/512)`
+- promoted_signoff_cases: `512`
+- evidenced_promoted_cases: `512`
+- promoted functional coverage: `100.0% (512/512)`
 
 ## Signoff Runs
 
@@ -71,7 +70,7 @@ This page is the chief-architect dashboard. All per-case evidence lives under [`
 
 | status | run_id | kind | build | seq | txns | cross_pct |
 |:---:|---|---|---|---|---:|---:|
-| ✅ | [`rdma_dma_engine_dual_debug_smoke`](REPORT/cross/rdma_dma_engine_dual_debug_smoke.md) | isolated | dual_debug | make -C tb/uvm regress | 2 | 100.0 |
+| ✅ | [`rdma_dma_engine_phase_b_all_dual_debug`](REPORT/cross/rdma_dma_engine_phase_b_all_dual_debug.md) | isolated | dual_debug | make -C tb/uvm regress | 36353 | 100.0 |
 
 ## Index
 
