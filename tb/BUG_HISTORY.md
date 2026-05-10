@@ -47,7 +47,7 @@ Historical formal note:
 | [BUG-005-H](#bug-005-h-axi-completer-dropped-same-cycle-bvalid-before-clocked-handshake) | H | non-datapath-refactor | directed-only (same-cycle BVALID stress) | fixed | Phase B B059 | `21aca89` | The AXI completer deasserted BVALID before the DUT could sample a same-cycle B-channel handshake. |
 | [BUG-006-R](#bug-006-r-eoe-tail-could-remain-behind-short-final-aw) | R | soft error | common (EOE after full FIFO beats but before a 16-beat burst is available) | fixed | Phase B B063 | `21aca89` | The writer could latch a short final AW before the packer had pushed the EOE partial tail into the FIFO. |
 | [BUG-007-R](#bug-007-r-eoe-reporting-could-close-before-later-event-beats-drained) | R | soft error | occasional (multi-event EOE jobs under host B-channel latency) | fixed | Phase B B066 | `c884e45` | The writer stopped accepting later event beats and reported after the first EOE/B response instead of draining all accepted multi-event data. |
-| [BUG-008-H](#bug-008-h-zero-latency-axi-completer-stretched-w-bursts) | H | non-datapath-refactor | directed-only (queue-math zero-latency throughput smoke) | fixed | Phase B B117 | `pending` | The AXI completer deasserted WREADY between zero-lag W beats, stretching one 16-beat burst to 31 cycles. |
+| [BUG-008-H](#bug-008-h-zero-latency-axi-completer-stretched-w-bursts) | H | non-datapath-refactor | directed-only (queue-math zero-latency throughput smoke) | fixed | Phase B B117 | `5119579` | The AXI completer deasserted WREADY between zero-lag W beats, stretching one 16-beat burst to 31 cycles. |
 
 ## 2026-05-10
 
@@ -86,7 +86,7 @@ Historical formal note:
   - failing logs were captured at `tb/uvm/logs/dbg1/B117.log` and
     `tb/uvm/logs/dbg2/B117.log`
 - Commit:
-  - `pending`
+  - `5119579`
 
 ### BUG-007-R: EOE reporting could close before later event beats drained
 - First seen in:
