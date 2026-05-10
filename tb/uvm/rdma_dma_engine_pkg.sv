@@ -857,6 +857,278 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.bvalid_lag = 1;
     endtask
 
+    task run_dbg1_aw_inflight_case(input string tag, input bit [15:0] sqe_id);
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      bit stop_monitor;
+      bit prev_inflight;
+      int unsigned high_edges;
+      int unsigned high_falls;
+      int unsigned high_samples;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd2560, 32'd2560, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      env.axi_cfg.bvalid_lag = 20;
+      stop_monitor = 1'b0;
+      prev_inflight = 1'b0;
+      high_edges = 0;
+      high_falls = 0;
+      high_samples = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n !== 1'b1)
+              continue;
+            if (vif.dbg1_aw_inflight != 4'd0) begin
+              high_samples++;
+              if (!prev_inflight)
+                high_edges++;
+              prev_inflight = 1'b1;
+            end else begin
+              if (prev_inflight)
+                high_falls++;
+              prev_inflight = 1'b0;
+            end
+          end
+        end
+      join_none
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(640, 1'b1, {16'h0000, sqe_id}, next_lineage_id);
+      wait_for_done(300000);
+      wait_cycles(2);
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (high_edges < 5)
+        `uvm_error(tag, $sformatf("dbg1_aw_inflight high_edges=%0d expected>=5",
+                                  high_edges))
+      if (high_falls < 5)
+        `uvm_error(tag, $sformatf("dbg1_aw_inflight high_falls=%0d expected>=5",
+                                  high_falls))
+      if (high_samples == 0)
+        `uvm_error(tag, "dbg1_aw_inflight never asserted")
+      env.axi_cfg.bvalid_lag = 1;
+    endtask
+
+    task run_dbg1_w_remaining_case(input string tag, input bit [15:0] sqe_id);
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      bit stop_monitor;
+      bit loaded;
+      bit saw_zero_after_load;
+      int unsigned max_remaining;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd512, 32'd512, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 2;
+      env.axi_cfg.bvalid_lag = 12;
+      stop_monitor = 1'b0;
+      loaded = 1'b0;
+      saw_zero_after_load = 1'b0;
+      max_remaining = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n !== 1'b1)
+              continue;
+            if (vif.dbg1_w_beats_remaining > max_remaining)
+              max_remaining = vif.dbg1_w_beats_remaining;
+            if (vif.dbg1_w_beats_remaining == 8'd16)
+              loaded = 1'b1;
+            if (loaded && (vif.dbg1_w_beats_remaining == 8'd0))
+              saw_zero_after_load = 1'b1;
+          end
+        end
+      join_none
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(128, 1'b1, {16'h0000, sqe_id}, next_lineage_id);
+      wait_for_done(300000);
+      wait_cycles(2);
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (max_remaining != 16)
+        `uvm_error(tag, $sformatf("dbg1_w_beats_remaining max=%0d expected=16",
+                                  max_remaining))
+      if (!saw_zero_after_load)
+        `uvm_error(tag, "dbg1_w_beats_remaining did not return to zero")
+      env.axi_cfg.wready_lag = 0;
+      env.axi_cfg.bvalid_lag = 1;
+    endtask
+
+    task run_dbg1_b_outstanding_case(input string tag, input bit [15:0] sqe_id);
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      bit stop_monitor;
+      int unsigned b_outstanding_samples;
+      int unsigned delayed_wait_samples;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd512, 32'd512, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      env.axi_cfg.bvalid_lag = 100;
+      stop_monitor = 1'b0;
+      b_outstanding_samples = 0;
+      delayed_wait_samples = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n !== 1'b1)
+              continue;
+            if (vif.dbg1_b_outstanding != 4'd0) begin
+              b_outstanding_samples++;
+              if (!vif.m_axi_bvalid)
+                delayed_wait_samples++;
+            end
+          end
+        end
+      join_none
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(128, 1'b1, {16'h0000, sqe_id}, next_lineage_id);
+      wait_for_done(300000);
+      wait_cycles(2);
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (b_outstanding_samples == 0)
+        `uvm_error(tag, "dbg1_b_outstanding never asserted")
+      if (delayed_wait_samples < 32)
+        `uvm_error(tag, $sformatf(
+          "dbg1_b_outstanding delayed samples=%0d expected>=32",
+          delayed_wait_samples))
+      env.axi_cfg.bvalid_lag = 1;
+    endtask
+
+    task run_multi_event_var_job(
+      input string tag,
+      input int unsigned event_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no,
+      input int unsigned timeout_cycles = 300000
+    );
+      job_single_segment_sequence job_seq;
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      int unsigned total_words;
+      int unsigned words_this_event;
+
+      total_words = 0;
+      for (int unsigned ev_idx = 0; ev_idx < event_count; ev_idx++) begin
+        words_this_event = 1 + ((ev_idx * 37 + 11) % 256);
+        total_words += words_this_event;
+      end
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'(total_words) * 64'd4,
+                               (total_words * 4), 32'd0,
+                               expected_status, status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      env.axi_cfg.bvalid_lag = 24;
+      job_seq = job_single_segment_sequence::type_id::create({tag, "_job_seq"});
+      job_seq.seg0_addr = 64'h0000_0000_0010_0000;
+      job_seq.seg0_span = 64'h0000_0000_0001_0000;
+      job_seq.seg1_addr = 64'h0000_0000_0000_0000;
+      job_seq.seg1_span = 64'h0000_0000_0000_0000;
+      job_seq.sqe_id = sqe_id;
+      job_seq.opcode = 16'h0001;
+      job_seq.start(env.job_agent_h.sequencer);
+      wait_cycles(2);
+      for (int unsigned ev_idx = 0; ev_idx < event_count; ev_idx++) begin
+        words_this_event = 1 + ((ev_idx * 37 + 11) % 256);
+        drive_direct_words(words_this_event, 1'b1, sequence_no + ev_idx,
+                           next_lineage_id);
+        wait_cycles(ev_idx % 4);
+      end
+      wait_for_done(timeout_cycles);
+      wait_cycles(2);
+      check_u32_equal(tag, "job_event_count", vif.job_event_count,
+                      event_count[31:0]);
+      check_u32_equal(tag, "cnt_eoe_observed", vif.cnt_eoe_observed,
+                      event_count[31:0]);
+      env.axi_cfg.bvalid_lag = 1;
+    endtask
+
+    task run_random_idle_job(input string tag, input bit [15:0] sqe_id);
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd400, 32'd400, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      for (int unsigned idx = 0; idx < 100; idx++) begin
+        drive_direct_opq_word({8'h00, sqe_id, idx[7:0]}, (idx == 99),
+                              {16'h0000, sqe_id}, next_lineage_id + idx + 1);
+        wait_cycles((idx * 17 + 3) % 4);
+      end
+      next_lineage_id += 100;
+      wait_for_done(300000);
+      wait_cycles(2);
+      check_conservation(tag);
+    endtask
+
+    task run_random_mixed_jobs(input string tag, input bit [15:0] sqe_id);
+      bit [63:0] spans [3];
+      spans[0] = 64'h0000_0000_0000_1000;
+      spans[1] = 64'h0000_0000_0000_2000;
+      spans[2] = 64'h0000_0000_0000_4000;
+      for (int unsigned idx = 0; idx < 8; idx++) begin
+        bit two_seg;
+        bit [63:0] seg0_span_v;
+        bit [63:0] seg1_span_v;
+        int unsigned words_v;
+        two_seg = ((idx % 2) == 1);
+        seg0_span_v = spans[(idx * 5 + 1) % 3];
+        seg1_span_v = two_seg ? spans[(idx * 3 + 2) % 3] : 64'h0;
+        words_v = two_seg ? (1024 + ((idx * 73) % 512)) :
+                  (64 + ((idx * 29) % 512));
+        run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
+                    .seg0_span(seg0_span_v),
+                    .seg1_span(seg1_span_v),
+                    .opq_words(words_v),
+                    .send_eoe(1'b1),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(32'(idx + 1)),
+                    .idle_after_each(idx % 3),
+                    .timeout_cycles(300000));
+      end
+      check_conservation(tag);
+    endtask
+
     task run_halt_count_job(
       input string tag,
       input int unsigned dropped_words = 10,
@@ -875,6 +1147,7 @@ package rdma_dma_engine_pkg;
       int unsigned modeled_slot;
       int unsigned actual_slot;
       bit [31:0] halt_delta;
+      int unsigned halt_pulse_count;
 
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 5000;
@@ -916,16 +1189,22 @@ package rdma_dma_engine_pkg;
       end
 
       halt_before = vif.cnt_halt;
+      halt_pulse_count = 0;
       env.scb.ignore_next_opq(dropped_words);
       for (int unsigned drop_idx = 0; drop_idx < dropped_words; drop_idx++) begin
         drive_direct_opq_word({8'h00, sequence_no[15:0], drop_idx[7:0]},
                               1'b0, sequence_no, accepted_words + drop_idx + 1);
+        if (vif.dbg1_halt_pulse)
+          halt_pulse_count++;
       end
       wait_cycles(4);
       halt_delta = vif.cnt_halt - halt_before;
       if (halt_delta < dropped_words[31:0])
         `uvm_error(tag, $sformatf("cnt_halt delta got=%0d expected at least %0d",
                                   halt_delta, dropped_words))
+      if (halt_pulse_count != dropped_words)
+        `uvm_error(tag, $sformatf("dbg1_halt_pulse count got=%0d expected=%0d",
+                                  halt_pulse_count, dropped_words))
       expected_halt = vif.cnt_halt;
 
       env.axi_cfg.wready_lag = 0;
@@ -1380,6 +1659,95 @@ package rdma_dma_engine_pkg;
             end
             96: begin
               run_writer_state_probe_case(.tag(id), .sqe_id(sqe_id));
+            end
+            default: begin
+              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+            end
+          endcase
+          return;
+        end else if ((num >= 97) && (num <= 112)) begin
+          case (num)
+            97: begin
+              run_dbg1_aw_inflight_case(.tag(id), .sqe_id(sqe_id));
+            end
+            98: begin
+              run_dbg1_w_remaining_case(.tag(id), .sqe_id(sqe_id));
+            end
+            99: begin
+              run_halt_count_job(.tag(id), .dropped_words(5),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            100: begin
+              run_dbg1_b_outstanding_case(.tag(id), .sqe_id(sqe_id));
+            end
+            101: begin
+              run_dma_job(.tag(id), .opq_words(8), .send_eoe(1'b1),
+                          .sqe_id(sqe_id), .sequence_no(num));
+            end
+            102: begin
+              run_dma_job(.tag(id), .opq_words(32), .send_eoe(1'b1),
+                          .sqe_id(sqe_id), .sequence_no(num));
+            end
+            103: begin
+              run_random_idle_job(.tag(id), .sqe_id(sqe_id));
+            end
+            104: begin
+              run_dma_job(.tag(id), .opq_words(4), .send_eoe(1'b1),
+                          .sqe_id(sqe_id), .sequence_no(num));
+            end
+            105: begin
+              run_dma_job(.tag(id), .seg0_span(64'h1000),
+                          .seg1_span(64'h1000), .opq_words(2048),
+                          .send_eoe(1'b0), .sqe_id(sqe_id),
+                          .sequence_no(num), .timeout_cycles(500000));
+            end
+            106: begin
+              run_dma_multi_event_job(.tag(id), .event_count(4),
+                                      .words_per_event(8), .gap_cycles(8),
+                                      .sqe_id(sqe_id), .sequence_no(num),
+                                      .bvalid_lag(80));
+            end
+            107: begin
+              run_dma_job(.tag(id), .opq_words(8), .send_eoe(1'b1),
+                          .sqe_id(sqe_id), .sequence_no(num));
+              if ((env.debug_level == 1) &&
+                  ((vif.dbg2_writer_meta_valid !== 1'b0) ||
+                   (vif.dbg2_writer_meta_valid_mask !== '0)))
+                `uvm_error(id, "DEBUG2 writer metadata was not inert in DEBUG1")
+            end
+            108: begin
+              run_random_mixed_jobs(.tag(id), .sqe_id(sqe_id));
+            end
+            109: begin
+              run_multi_event_var_job(.tag(id), .event_count(16),
+                                      .sqe_id(sqe_id), .sequence_no(num),
+                                      .timeout_cycles(700000));
+            end
+            110: begin
+              run_random_idle_job(.tag(id), .sqe_id(sqe_id));
+            end
+            111: begin
+              run_dma_job(.tag(id), .seg0_span(64'h2000), .opq_words(1024),
+                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .sequence_no(num), .timeout_cycles(300000));
+              check_u32_equal(id, "job_seg0_bytes_written",
+                              vif.job_seg0_bytes_written, 32'd4096);
+              check_u32_equal(id, "job_seg1_bytes_written",
+                              vif.job_seg1_bytes_written, 32'd0);
+              check_u32_equal(id, "job_bytes_written_total",
+                              vif.job_bytes_written_total[31:0], 32'd4096);
+            end
+            112: begin
+              run_dma_job(.tag(id), .seg0_span(64'h1000),
+                          .seg1_span(64'h1000), .opq_words(2048),
+                          .send_eoe(1'b0), .sqe_id(sqe_id),
+                          .sequence_no(num), .timeout_cycles(500000));
+              check_u32_equal(id, "job_seg0_bytes_written",
+                              vif.job_seg0_bytes_written, 32'd4096);
+              check_u32_equal(id, "job_seg1_bytes_written",
+                              vif.job_seg1_bytes_written, 32'd4096);
+              check_u32_equal(id, "job_bytes_written_total",
+                              vif.job_bytes_written_total[31:0], 32'd8192);
             end
             default: begin
               run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
