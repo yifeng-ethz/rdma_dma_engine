@@ -3406,6 +3406,147 @@ package rdma_dma_engine_pkg;
                        RDMA_DMA_ST_EOE, 1'b1);
     endtask
 
+    task run_profile_multi_event_case(
+      input string tag,
+      input int unsigned event_count,
+      input int unsigned words_per_event,
+      input int unsigned gap_cycles,
+      input int unsigned bvalid_lag,
+      input int unsigned wready_lag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no,
+      input bit expect_halt = 1'b0
+    );
+      bit [31:0] expected_input;
+      bit [63:0] span_bytes;
+
+      expected_input = event_count[31:0] * words_per_event[31:0];
+      span_bytes = 64'(event_count) * 64'(words_per_event) * 64'd4 +
+                   64'h0000_0000_0000_1000;
+      span_bytes = (span_bytes + 64'hfff) & ~64'hfff;
+      run_dma_multi_event_job(.tag(tag),
+                              .event_count(event_count),
+                              .words_per_event(words_per_event),
+                              .gap_cycles(gap_cycles),
+                              .seg0_span(span_bytes),
+                              .sqe_id(sqe_id),
+                              .sequence_no(sequence_no),
+                              .wready_lag(wready_lag),
+                              .bvalid_lag(bvalid_lag),
+                              .timeout_cycles(1500000));
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, expected_input);
+      if (!expect_halt && (vif.cnt_halt != 32'h0))
+        `uvm_error(tag, $sformatf("cnt_halt got=%0d expected=0",
+                                  vif.cnt_halt))
+      if (expect_halt && (vif.cnt_halt == 32'h0))
+        `uvm_error(tag, "cnt_halt did not increment under halt profile")
+      check_conservation(tag);
+    endtask
+
+    task run_profile_single_load_case(
+      input string tag,
+      input int unsigned opq_words,
+      input int unsigned idle_after_each,
+      input int unsigned wready_lag,
+      input int unsigned bvalid_lag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no,
+      input bit expect_halt = 1'b0
+    );
+      bit [63:0] span_bytes;
+
+      span_bytes = 64'(opq_words) * 64'd4 + 64'h1000;
+      span_bytes = (span_bytes + 64'hfff) & ~64'hfff;
+      run_dma_job(.tag(tag), .seg0_span(span_bytes),
+                  .opq_words(opq_words), .send_eoe(1'b1),
+                  .wready_lag(wready_lag), .bvalid_lag(bvalid_lag),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .idle_after_each(idle_after_each),
+                  .timeout_cycles(1500000));
+      if (!expect_halt && (vif.cnt_halt != 32'h0))
+        `uvm_error(tag, $sformatf("cnt_halt got=%0d expected=0",
+                                  vif.cnt_halt))
+      if (expect_halt && (vif.cnt_halt == 32'h0))
+        `uvm_error(tag, "cnt_halt did not increment under throttled load")
+      check_conservation(tag);
+    endtask
+
+    task run_profile_job_stream_case(
+      input string tag,
+      input int unsigned job_count,
+      input int unsigned words_per_job,
+      input bit two_segment,
+      input bit mixed_span,
+      input bit random_sqe,
+      input int unsigned gap_cycles,
+      input bit variable_lag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      for (int unsigned idx = 0; idx < job_count; idx++) begin
+        bit [63:0] seg0_span_v;
+        bit [63:0] seg1_span_v;
+        int unsigned words_v;
+        int unsigned bvalid_v;
+        int unsigned idle_v;
+        bit [15:0] sqe_v;
+
+        words_v = words_per_job;
+        seg0_span_v = 64'h1000;
+        seg1_span_v = 64'h0;
+        if (mixed_span) begin
+          case (idx % 4)
+            0: begin
+              seg0_span_v = 64'h1000;
+              words_v = 64;
+            end
+            1: begin
+              seg0_span_v = 64'h2000;
+              words_v = 512;
+            end
+            2: begin
+              seg0_span_v = 64'h4000;
+              words_v = 1024;
+            end
+            default: begin
+              seg0_span_v = 64'h1000;
+              seg1_span_v = 64'h1000;
+              words_v = 1032;
+            end
+          endcase
+        end else if (two_segment) begin
+          seg0_span_v = 64'h1000;
+          seg1_span_v = 64'h1000;
+          words_v = (words_per_job < 1025) ? 1032 : words_per_job;
+        end else begin
+          seg0_span_v = 64'(words_per_job) * 64'd4;
+          seg0_span_v = (seg0_span_v + 64'hfff) & ~64'hfff;
+          if (seg0_span_v == 64'h0)
+            seg0_span_v = 64'h1000;
+        end
+
+        bvalid_v = variable_lag ? (1 + ((idx * 37) % 250)) : 1;
+        idle_v = (gap_cycles == 0) ? 0 : (idx % 3);
+        sqe_v = random_sqe ? (16'h4000 ^ (idx[15:0] * 16'h0123)) :
+                (sqe_id + idx[15:0]);
+        run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
+                    .seg0_span(seg0_span_v),
+                    .seg1_span(seg1_span_v),
+                    .opq_words(words_v),
+                    .send_eoe(1'b1),
+                    .bvalid_lag(bvalid_v),
+                    .sqe_id(sqe_v),
+                    .sequence_no(sequence_no + idx),
+                    .idle_after_each(idle_v),
+                    .timeout_cycles(700000));
+        if (gap_cycles != 0)
+          wait_cycles(gap_cycles);
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      job_count[31:0]);
+      check_conservation(tag);
+    endtask
+
     task run_halt_count_job(
       input string tag,
       input int unsigned dropped_words = 10,
@@ -5115,6 +5256,152 @@ package rdma_dma_engine_pkg;
           b_lag = (num == 108) ? 64 : 1;
         end
       end else if (prefix == "P") begin
+        if (num <= 16) begin
+          case (num)
+            1: begin
+              run_profile_multi_event_case(.tag(id), .event_count(100),
+                                           .words_per_event(64),
+                                           .gap_cycles(0), .bvalid_lag(1),
+                                           .wready_lag(0), .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            2: begin
+              run_profile_multi_event_case(.tag(id), .event_count(100),
+                                           .words_per_event(64),
+                                           .gap_cycles(0), .bvalid_lag(250),
+                                           .wready_lag(0), .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            3: begin
+              run_halt_count_job(.tag(id), .dropped_words(100),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            4: begin
+              run_profile_multi_event_case(.tag(id), .event_count(256),
+                                           .words_per_event(64),
+                                           .gap_cycles(0), .bvalid_lag(1),
+                                           .wready_lag(0), .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            5: begin
+              run_profile_single_load_case(.tag(id), .opq_words(6400),
+                                           .idle_after_each(1),
+                                           .wready_lag(0), .bvalid_lag(1),
+                                           .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            6: begin
+              run_profile_single_load_case(.tag(id), .opq_words(6400),
+                                           .idle_after_each(0),
+                                           .wready_lag(1), .bvalid_lag(1),
+                                           .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            7: begin
+              run_profile_single_load_case(.tag(id), .opq_words(800),
+                                           .idle_after_each(9),
+                                           .wready_lag(0), .bvalid_lag(1),
+                                           .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            8: begin
+              run_halt_count_job(.tag(id), .dropped_words(32),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            9: begin
+              run_profile_job_stream_case(.tag(id), .job_count(32),
+                                          .words_per_job(1024),
+                                          .two_segment(1'b0),
+                                          .mixed_span(1'b0),
+                                          .random_sqe(1'b0),
+                                          .gap_cycles(0),
+                                          .variable_lag(1'b0),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            10: begin
+              run_profile_job_stream_case(.tag(id), .job_count(16),
+                                          .words_per_job(4096),
+                                          .two_segment(1'b0),
+                                          .mixed_span(1'b0),
+                                          .random_sqe(1'b0),
+                                          .gap_cycles(0),
+                                          .variable_lag(1'b0),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            11: begin
+              run_profile_job_stream_case(.tag(id), .job_count(16),
+                                          .words_per_job(1032),
+                                          .two_segment(1'b1),
+                                          .mixed_span(1'b0),
+                                          .random_sqe(1'b0),
+                                          .gap_cycles(0),
+                                          .variable_lag(1'b0),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            12: begin
+              run_profile_job_stream_case(.tag(id), .job_count(64),
+                                          .words_per_job(512),
+                                          .two_segment(1'b0),
+                                          .mixed_span(1'b1),
+                                          .random_sqe(1'b0),
+                                          .gap_cycles(0),
+                                          .variable_lag(1'b1),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            13: begin
+              run_profile_job_stream_case(.tag(id), .job_count(32),
+                                          .words_per_job(64),
+                                          .two_segment(1'b0),
+                                          .mixed_span(1'b0),
+                                          .random_sqe(1'b1),
+                                          .gap_cycles(0),
+                                          .variable_lag(1'b0),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            14: begin
+              run_profile_job_stream_case(.tag(id), .job_count(24),
+                                          .words_per_job(128),
+                                          .two_segment(1'b0),
+                                          .mixed_span(1'b0),
+                                          .random_sqe(1'b0),
+                                          .gap_cycles(0),
+                                          .variable_lag(1'b0),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            15: begin
+              run_profile_job_stream_case(.tag(id), .job_count(16),
+                                          .words_per_job(64),
+                                          .two_segment(1'b0),
+                                          .mixed_span(1'b0),
+                                          .random_sqe(1'b0),
+                                          .gap_cycles(100),
+                                          .variable_lag(1'b0),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            16: begin
+              run_profile_job_stream_case(.tag(id), .job_count(16),
+                                          .words_per_job(128),
+                                          .two_segment(1'b0),
+                                          .mixed_span(1'b1),
+                                          .random_sqe(1'b0),
+                                          .gap_cycles(0),
+                                          .variable_lag(1'b1),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            default: begin
+              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+            end
+          endcase
+          return;
+        end
         words = 64 + (num % 192);
         aw_lag = (num % 7 == 0) ? 64 : 0;
         w_lag = (num % 11 == 0) ? 3 : 0;
