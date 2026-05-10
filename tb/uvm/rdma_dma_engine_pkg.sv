@@ -1288,10 +1288,16 @@ package rdma_dma_engine_pkg;
       input bit [63:0] expected_last_aw = 64'h0000_0000_0010_0000,
       input bit check_first_awlen = 1'b0,
       input int unsigned expected_first_awlen = 0,
+      input bit check_last_awlen = 1'b0,
+      input int unsigned expected_last_awlen = 0,
       input bit check_seg1_aw = 1'b0,
       input bit [63:0] expected_seg1_aw = 64'h0000_0000_0020_0000,
       input bit [15:0] sqe_id = 16'h0100,
       input bit [31:0] sequence_no = 32'd1,
+      input int unsigned obs_idle_after_each = 0,
+      input int unsigned obs_awready_lag = 0,
+      input int unsigned obs_wready_lag = 0,
+      input int unsigned obs_bvalid_lag = 1,
       input int unsigned timeout_cycles = 500000
     );
       bit stop_monitor;
@@ -1300,6 +1306,7 @@ package rdma_dma_engine_pkg;
       int unsigned aw_count_local;
       int unsigned max_awlen;
       int unsigned first_awlen;
+      int unsigned last_awlen;
       bit [63:0] first_aw;
       bit [63:0] last_aw;
 
@@ -1309,6 +1316,7 @@ package rdma_dma_engine_pkg;
       aw_count_local = 0;
       max_awlen = 0;
       first_awlen = 0;
+      last_awlen = 0;
       first_aw = 64'h0;
       last_aw = 64'h0;
 
@@ -1326,6 +1334,7 @@ package rdma_dma_engine_pkg;
                 saw_first_aw = 1'b1;
               end
               last_aw = vif.m_axi_awaddr;
+              last_awlen = vif.m_axi_awlen;
               if (vif.m_axi_awlen > max_awlen)
                 max_awlen = vif.m_axi_awlen;
               if (vif.m_axi_awaddr == expected_seg1_aw)
@@ -1349,7 +1358,12 @@ package rdma_dma_engine_pkg;
                   .seg0_span(obs_seg0_span), .seg1_addr(obs_seg1_addr),
                   .seg1_span(obs_seg1_span), .opq_words(obs_words),
                   .send_eoe(obs_send_eoe), .sqe_id(sqe_id),
-                  .sequence_no(sequence_no), .timeout_cycles(timeout_cycles));
+                  .sequence_no(sequence_no),
+                  .idle_after_each(obs_idle_after_each),
+                  .awready_lag(obs_awready_lag),
+                  .wready_lag(obs_wready_lag),
+                  .bvalid_lag(obs_bvalid_lag),
+                  .timeout_cycles(timeout_cycles));
       stop_monitor = 1'b1;
       wait_cycles(1);
 
@@ -1365,11 +1379,104 @@ package rdma_dma_engine_pkg;
       if (check_first_awlen && first_awlen != expected_first_awlen)
         `uvm_error(tag, $sformatf("first AWLEN got=%0d expected=%0d",
                                   first_awlen, expected_first_awlen))
+      if (check_last_awlen && last_awlen != expected_last_awlen)
+        `uvm_error(tag, $sformatf("last AWLEN got=%0d expected=%0d",
+                                  last_awlen, expected_last_awlen))
       if (check_seg1_aw && !saw_seg1_aw)
         `uvm_error(tag, $sformatf("seg1 AW addr 0x%016h was not observed",
                                   expected_seg1_aw))
       if (max_awlen > 15)
         `uvm_error(tag, $sformatf("max AWLEN got=%0d expected<=15", max_awlen))
+    endtask
+
+    task run_fifo_threshold_edge_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit check_crossing,
+      input bit check_drain,
+      input bit [31:0] sequence_no = 32'd31
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      int unsigned accepted_words;
+      int unsigned lineage_id;
+      bit saw_drain_to_191;
+
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 5000;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0040_0000,
+                           64'h0000_0000_0001_0000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+
+      accepted_words = 0;
+      lineage_id = next_lineage_id;
+      for (int unsigned beat_idx = 0; beat_idx < 191; beat_idx++) begin
+        for (int unsigned slot_idx = 0; slot_idx < RDMA_DMA_OPQ_PER_BEAT;
+             slot_idx++) begin
+          accepted_words++;
+          lineage_id++;
+          drive_direct_opq_word({8'h00, sequence_no[15:0],
+                                accepted_words[7:0]},
+                                1'b0, sequence_no, lineage_id);
+        end
+      end
+      wait_cycles(2);
+      if (vif.dbg1_fifo_level !== 9'd191)
+        `uvm_error(tag, $sformatf("fifo level got=%0d expected=191",
+                                  vif.dbg1_fifo_level))
+      if (vif.dbg1_fifo_almost_full !== 1'b0)
+        `uvm_error(tag, "fifo_almost_full asserted at threshold-1")
+
+      for (int unsigned slot_idx = 0; slot_idx < RDMA_DMA_OPQ_PER_BEAT;
+           slot_idx++) begin
+        accepted_words++;
+        lineage_id++;
+        drive_direct_opq_word({8'h00, sequence_no[15:0],
+                              accepted_words[7:0]},
+                              1'b0, sequence_no, lineage_id);
+      end
+      wait_cycles(2);
+      if (check_crossing) begin
+        if (vif.dbg1_fifo_level !== 9'd192)
+          `uvm_error(tag, $sformatf("fifo level got=%0d expected=192",
+                                    vif.dbg1_fifo_level))
+        if (vif.dbg1_fifo_almost_full !== 1'b1)
+          `uvm_error(tag, "fifo_almost_full did not assert at threshold")
+      end
+
+      env.axi_cfg.wready_lag = 0;
+      saw_drain_to_191 = 1'b0;
+      for (int unsigned cycle = 0; cycle < 20000; cycle++) begin
+        @(posedge vif.clk);
+        if ((vif.dbg1_fifo_level <= 9'd191) &&
+            (vif.dbg1_fifo_almost_full === 1'b0)) begin
+          saw_drain_to_191 = 1'b1;
+          break;
+        end
+      end
+      if (check_drain && !saw_drain_to_191)
+        `uvm_error(tag, "fifo_almost_full did not clear when draining to 191")
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      accepted_words++;
+      lineage_id++;
+      expect_simple_status_job(64'(accepted_words) * 64'd4,
+                               accepted_words[31:0] * 32'd4, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      drive_direct_opq_word({8'h00, sequence_no[15:0], accepted_words[7:0]},
+                            1'b1, sequence_no, lineage_id);
+      wait_for_done(500000);
+      wait_cycles(2);
+      check_status_bit(tag, "status[HALT]", RDMA_DMA_ST_HALT, 1'b0);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      env.axi_cfg.bvalid_lag = 1;
+      next_lineage_id = lineage_id;
     endtask
 
     task run_halt_count_job(
@@ -2333,6 +2440,205 @@ package rdma_dma_engine_pkg;
                                   .expected_aw_count(1),
                                   .expected_first_aw(64'h0000_0010_0000_0000),
                                   .sqe_id(sqe_id), .sequence_no(num));
+            end
+            default: begin
+              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+            end
+          endcase
+          return;
+        end
+        if (num <= 32) begin
+          case (num)
+            17: begin
+              run_aw_observed_job(.tag(id),
+                                  .obs_seg0_addr(64'hffff_ffff_ffff_f000),
+                                  .obs_words(8), .obs_send_eoe(1'b1),
+                                  .expected_aw_count(1),
+                                  .expected_first_aw(64'hffff_ffff_ffff_f000),
+                                  .sqe_id(sqe_id), .sequence_no(num));
+            end
+            18: begin
+              run_aw_observed_job(.tag(id),
+                                  .obs_seg0_addr(64'h0000_0000_0010_0000),
+                                  .obs_seg0_span(64'h1000),
+                                  .obs_seg1_addr(64'h0000_0000_0008_0000),
+                                  .obs_seg1_span(64'h1000),
+                                  .obs_words(2048), .obs_send_eoe(1'b0),
+                                  .expected_aw_count(16),
+                                  .expected_first_aw(64'h0000_0000_0010_0000),
+                                  .check_last_aw(1'b1),
+                                  .expected_last_aw(64'h0000_0000_0008_0e00),
+                                  .check_seg1_aw(1'b1),
+                                  .expected_seg1_aw(64'h0000_0000_0008_0000),
+                                  .sqe_id(sqe_id), .sequence_no(num),
+                                  .timeout_cycles(500000));
+              check_status_bit(id, "status[SEG_BOUNDARY_HIT]",
+                               RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
+            end
+            19: begin
+              run_aw_observed_job(.tag(id),
+                                  .obs_seg0_addr(64'h0000_0000_0010_0000),
+                                  .obs_seg0_span(64'h1000),
+                                  .obs_seg1_addr(64'h0000_0000_0010_1000),
+                                  .obs_seg1_span(64'h1000),
+                                  .obs_words(2048), .obs_send_eoe(1'b0),
+                                  .expected_aw_count(16),
+                                  .expected_first_aw(64'h0000_0000_0010_0000),
+                                  .check_last_aw(1'b1),
+                                  .expected_last_aw(64'h0000_0000_0010_1e00),
+                                  .check_seg1_aw(1'b1),
+                                  .expected_seg1_aw(64'h0000_0000_0010_1000),
+                                  .sqe_id(sqe_id), .sequence_no(num),
+                                  .timeout_cycles(500000));
+              check_status_bit(id, "status[SEG_BOUNDARY_HIT]",
+                               RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
+            end
+            20: begin
+              run_aw_observed_job(.tag(id),
+                                  .obs_seg0_addr(64'h0000_0000_0000_1000),
+                                  .obs_seg0_span(64'h1000),
+                                  .obs_seg1_addr(64'h0000_0000_1000_0000),
+                                  .obs_seg1_span(64'h1000),
+                                  .obs_words(2048), .obs_send_eoe(1'b0),
+                                  .expected_aw_count(16),
+                                  .expected_first_aw(64'h0000_0000_0000_1000),
+                                  .check_last_aw(1'b1),
+                                  .expected_last_aw(64'h0000_0000_1000_0e00),
+                                  .check_seg1_aw(1'b1),
+                                  .expected_seg1_aw(64'h0000_0000_1000_0000),
+                                  .sqe_id(sqe_id), .sequence_no(num),
+                                  .timeout_cycles(500000));
+              check_status_bit(id, "status[SEG_BOUNDARY_HIT]",
+                               RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
+            end
+            21: begin
+              run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
+                                  .obs_words(8),
+                                  .obs_send_eoe(1'b1),
+                                  .expected_aw_count(1),
+                                  .expected_first_aw(seg0_addr),
+                                  .check_first_awlen(1'b1),
+                                  .expected_first_awlen(0),
+                                  .sqe_id(sqe_id), .sequence_no(num));
+            end
+            22: begin
+              run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
+                                  .obs_words(136),
+                                  .obs_send_eoe(1'b1),
+                                  .expected_aw_count(2),
+                                  .expected_first_aw(seg0_addr),
+                                  .check_first_awlen(1'b1),
+                                  .expected_first_awlen(15),
+                                  .check_last_awlen(1'b1),
+                                  .expected_last_awlen(0),
+                                  .sqe_id(sqe_id), .sequence_no(num));
+            end
+            23: begin
+              run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
+                                  .obs_words(128),
+                                  .obs_send_eoe(1'b1),
+                                  .expected_aw_count(1),
+                                  .expected_first_aw(seg0_addr),
+                                  .check_first_awlen(1'b1),
+                                  .expected_first_awlen(15),
+                                  .sqe_id(sqe_id), .sequence_no(num));
+            end
+            24: begin
+              run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
+                                  .obs_words(40),
+                                  .obs_send_eoe(1'b1),
+                                  .expected_aw_count(1),
+                                  .expected_first_aw(seg0_addr),
+                                  .check_first_awlen(1'b1),
+                                  .expected_first_awlen(4),
+                                  .sqe_id(sqe_id), .sequence_no(num));
+            end
+            25: begin
+              run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
+                                  .obs_words(32),
+                                  .obs_send_eoe(1'b1),
+                                  .expected_aw_count(1),
+                                  .expected_first_aw(seg0_addr),
+                                  .check_first_awlen(1'b1),
+                                  .expected_first_awlen(3),
+                                  .sqe_id(sqe_id), .sequence_no(num));
+            end
+            26: begin
+              run_aw_observed_job(.tag(id),
+                                  .obs_seg0_addr(64'h0000_0000_0000_1000),
+                                  .obs_words(128), .obs_send_eoe(1'b1),
+                                  .expected_aw_count(1),
+                                  .expected_first_aw(64'h0000_0000_0000_1000),
+                                  .check_first_awlen(1'b1),
+                                  .expected_first_awlen(15),
+                                  .sqe_id(sqe_id), .sequence_no(num));
+            end
+            27: begin
+              run_aw_observed_job(.tag(id),
+                                  .obs_seg0_addr(64'h0000_0000_0000_1000),
+                                  .obs_seg0_span(64'h1000),
+                                  .obs_words(1024), .obs_send_eoe(1'b0),
+                                  .expected_aw_count(8),
+                                  .expected_first_aw(64'h0000_0000_0000_1000),
+                                  .check_last_aw(1'b1),
+                                  .expected_last_aw(64'h0000_0000_0000_1e00),
+                                  .check_last_awlen(1'b1),
+                                  .expected_last_awlen(15),
+                                  .sqe_id(sqe_id), .sequence_no(num));
+            end
+            28: begin
+              run_aw_observed_job(.tag(id),
+                                  .obs_seg0_addr(64'h0000_0000_0000_1000),
+                                  .obs_seg0_span(64'h1000),
+                                  .obs_words(1024), .obs_send_eoe(1'b0),
+                                  .expected_aw_count(8),
+                                  .expected_first_aw(64'h0000_0000_0000_1000),
+                                  .check_last_aw(1'b1),
+                                  .expected_last_aw(64'h0000_0000_0000_1e00),
+                                  .check_first_awlen(1'b1),
+                                  .expected_first_awlen(15),
+                                  .check_last_awlen(1'b1),
+                                  .expected_last_awlen(15),
+                                  .sqe_id(sqe_id), .sequence_no(num));
+            end
+            29: begin
+              run_aw_observed_job(.tag(id),
+                                  .obs_seg0_addr(64'h0000_0000_0000_1000),
+                                  .obs_words(384), .obs_send_eoe(1'b1),
+                                  .expected_aw_count(3),
+                                  .expected_first_aw(64'h0000_0000_0000_1000),
+                                  .check_last_aw(1'b1),
+                                  .expected_last_aw(64'h0000_0000_0000_1400),
+                                  .check_first_awlen(1'b1),
+                                  .expected_first_awlen(15),
+                                  .check_last_awlen(1'b1),
+                                  .expected_last_awlen(15),
+                                  .sqe_id(sqe_id), .sequence_no(num));
+            end
+            30: begin
+              run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
+                                  .obs_words(160),
+                                  .obs_send_eoe(1'b1),
+                                  .expected_aw_count(2),
+                                  .expected_first_aw(seg0_addr),
+                                  .check_first_awlen(1'b1),
+                                  .expected_first_awlen(15),
+                                  .check_last_awlen(1'b1),
+                                  .expected_last_awlen(3),
+                                  .obs_idle_after_each(1),
+                                  .sqe_id(sqe_id), .sequence_no(num));
+            end
+            31: begin
+              run_fifo_threshold_edge_case(.tag(id), .sqe_id(sqe_id),
+                                           .check_crossing(1'b1),
+                                           .check_drain(1'b0),
+                                           .sequence_no(num));
+            end
+            32: begin
+              run_fifo_threshold_edge_case(.tag(id), .sqe_id(sqe_id),
+                                           .check_crossing(1'b0),
+                                           .check_drain(1'b1),
+                                           .sequence_no(num));
             end
             default: begin
               run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
