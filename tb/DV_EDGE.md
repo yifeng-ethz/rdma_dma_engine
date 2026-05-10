@@ -222,10 +222,10 @@ AXI4 burst-sizing arithmetic in `RTL_PLAN.md` section 4.3.
 |----|--------|----------|------|----------|---------------|--------------------|
 | E095 | D | FIFO at 191 (one below threshold) | 1 | Carefully drive level to 191. | almost_full=0; one more entry triggers almost_full=1. | TBD |
 | E096 | D | FIFO clamps at threshold while one above-threshold ingress beat is dropped | 1 | Drive to level 192, then continue OPQ ingress while almost_full=1. | max dbg1_fifo_level==192; cnt_halt increments for dropped OPQ words. | TBD |
-| E097 | D | FIFO at 255 (depth-1) | 1 | Level=255. | almost_full=1; one more goes to full. | TBD |
-| E098 | D | FIFO at 256 (depth) | 1 | Force full. | Wr_en suppressed; halt counts dropped beats. | TBD |
-| E099 | D | FIFO recovery from full | 1 | Full -> drain -> normal. | After drain, accepts new writes. | TBD |
-| E100 | D | FIFO 1-cycle write-read with simultaneous | 1 | Write and read same clk. | Level unchanged (steady-state). | TBD |
+| E097 | D | FIFO depth-1 guard is unreachable through legal ingress | 1 | Drive to level 192, then attempt 63 more 256-bit entries while host is stalled. | max dbg1_fifo_level==192; cnt_halt counts the suppressed OPQ words. | TBD |
+| E098 | D | FIFO depth guard suppresses full-depth overfill attempts | 1 | Drive to level 192, then attempt 64 more 256-bit entries while host is stalled. | max dbg1_fifo_level==192; no stored level 256 is observed. | TBD |
+| E099 | D | FIFO recovery from almost-full halt | 1 | Halt at threshold -> drain -> normal. | After drain, a new job accepts and writes normally. | TBD |
+| E100 | D | FIFO 1-cycle write-read with simultaneous | 1 | Sustained ingress with host always ready. | At least one steady-state write/read cycle leaves level unchanged. | TBD |
 | E101 | D | FIFO single-write-only burst | 1 | Write 16 entries fast. | Level walks 0->16 in 16 clks. | TBD |
 | E102 | D | FIFO single-read-only burst | 1 | Read 16 entries fast. | Level walks 16->0. | TBD |
 
@@ -248,8 +248,8 @@ AXI4 burst-sizing arithmetic in `RTL_PLAN.md` section 4.3.
 
 | ID | Method | Scenario | Iter | Stimulus | Pass Criteria | Function Reference |
 |----|--------|----------|------|----------|---------------|--------------------|
-| E109 | D | cnt_input_w near 0xFFFF_FFFF (manual preload) | 1 | Force preload via TB; drive 1 OPQ beat. | cnt_input_w wraps to 0 after FFFF_FFFF (legal monotonic wrap). | TBD |
-| E110 | D | cnt_bytes_written near 0xFFFF_FFFF (preload) | 1 | Preload + 1 W beat. | Wraps to 0. | TBD |
+| E109 | D | cnt_input_w near 0xFFFF_FFFF (manual preload) | 1 | Force preload via TB; drive accepted OPQ beats. | cnt_input_w saturates at 0xFFFF_FFFF. | TBD |
+| E110 | D | cnt_bytes_written near 0xFFFF_FFFF (preload) | 1 | Preload + W beats. | cnt_bytes_written saturates at 0xFFFF_FFFF. | TBD |
 | E111 | D | Counter clear with values at max | 1 | Preload max; pulse clear. | All zero. | TBD |
 
 ---
@@ -258,7 +258,7 @@ AXI4 burst-sizing arithmetic in `RTL_PLAN.md` section 4.3.
 
 | ID | Method | Scenario | Iter | Stimulus | Pass Criteria | Function Reference |
 |----|--------|----------|------|----------|---------------|--------------------|
-| E112 | D | job_req while OPQ idle | 1 | OPQ tvalid=0 throughout. | Engine accepts; sits in WR_W waiting. | TBD |
+| E112 | D | job_req while OPQ idle | 1 | OPQ tvalid=0 throughout the probe window. | Engine accepts; sits in WR_ISSUING_AW waiting for FIFO data. | TBD |
 | E113 | D | job_req then immediate OPQ burst | 1 | Tight timing. | First burst latency tracks model. | TBD |
 | E114 | D | OPQ burst then late job_req | 1 | Drive 100 OPQ beats with no job (FIFO accumulates? no -- packer stays idle until job). | Engine ignores OPQ until job_req per RTL spec; cnt_input_w may or may not advance per RTL. | TBD |
 | E115 | D | job_req with seg0_addr=0xFFFF_FFFF_0000_0000 (high half) | 1 | High half. | Address propagated correctly. | TBD |

@@ -2498,6 +2498,468 @@ package rdma_dma_engine_pkg;
                                   vif.cnt_halt))
     endtask
 
+    task run_fifo_overfill_guard_case(
+      input string tag,
+      input int unsigned attempted_entries,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      int unsigned max_level;
+      int unsigned dropped_words;
+
+      stop_monitor = 1'b0;
+      max_level = 0;
+      dropped_words = attempted_entries * RDMA_DMA_OPQ_PER_BEAT;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.dbg1_fifo_level > max_level)
+              max_level = vif.dbg1_fifo_level;
+          end
+        end
+      join_none
+
+      run_halt_count_job(.tag(tag), .dropped_words(dropped_words),
+                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (max_level != 192)
+        `uvm_error(tag, $sformatf("fifo max_level got=%0d expected guard at 192",
+                                  max_level))
+      if (vif.cnt_halt < dropped_words[31:0])
+        `uvm_error(tag, $sformatf("cnt_halt got=%0d expected at least %0d",
+                                  vif.cnt_halt, dropped_words))
+    endtask
+
+    task run_fifo_recovery_after_halt_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [31:0] halt_after_inject;
+
+      run_halt_count_job(.tag({tag, "_halt"}), .dropped_words(16),
+                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+      halt_after_inject = vif.cnt_halt;
+      run_dma_job(.tag({tag, "_clean"}), .opq_words(16), .send_eoe(1'b1),
+                  .sqe_id(sqe_id + 16'd1),
+                  .sequence_no(sequence_no + 32'd1),
+                  .timeout_cycles(300000));
+      check_u32_equal(tag, "cnt_halt after recovery job",
+                      vif.cnt_halt, halt_after_inject);
+      if (env.scb.job_done_count < 2)
+        `uvm_error(tag, "recovery job did not complete after halt drain")
+    endtask
+
+    task run_fifo_simultaneous_rw_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      bit [8:0] prev_level;
+      int unsigned steady_samples;
+      int unsigned max_level;
+
+      stop_monitor = 1'b0;
+      prev_level = vif.dbg1_fifo_level;
+      steady_samples = 0;
+      max_level = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n !== 1'b1)
+              continue;
+            if (vif.dbg1_fifo_level > max_level)
+              max_level = vif.dbg1_fifo_level;
+            if (vif.m_axi_wvalid && vif.m_axi_wready &&
+                vif.s_axis_opq_tvalid && vif.s_axis_opq_tready &&
+                (vif.dbg1_fifo_level == prev_level))
+              steady_samples++;
+            prev_level = vif.dbg1_fifo_level;
+          end
+        end
+      join_none
+
+      run_dma_job(.tag(tag), .opq_words(512), .send_eoe(1'b1),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(500000));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (steady_samples == 0)
+        `uvm_error(tag, "no steady FIFO level sample observed during simultaneous traffic")
+      if (max_level >= 192)
+        `uvm_error(tag, $sformatf("steady-state fifo max_level got=%0d expected below halt threshold",
+                                  max_level))
+      if (vif.cnt_halt != 32'd0)
+        `uvm_error(tag, $sformatf("cnt_halt got=%0d expected no halt during ready-side traffic",
+                                  vif.cnt_halt))
+    endtask
+
+    task run_fifo_single_write_burst_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit seen_level [0:16];
+      int unsigned accepted_words;
+      int unsigned lineage_id;
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      accepted_words = 0;
+      lineage_id = next_lineage_id;
+      env.axi_cfg.awready_lag = 5000;
+      env.axi_cfg.wready_lag = 5000;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0040_0000,
+                           64'h0000_0000_0001_0000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+
+      for (int unsigned beat_idx = 0; beat_idx < 16; beat_idx++) begin
+        for (int unsigned slot_idx = 0; slot_idx < RDMA_DMA_OPQ_PER_BEAT;
+             slot_idx++) begin
+          accepted_words++;
+          lineage_id++;
+          drive_direct_opq_word({8'h00, sequence_no[15:0],
+                                accepted_words[7:0]},
+                                1'b0, sequence_no, lineage_id);
+        end
+        wait_cycles(1);
+        if (vif.dbg1_fifo_level <= 9'd16)
+          seen_level[vif.dbg1_fifo_level] = 1'b1;
+      end
+      for (int unsigned sample = 0; sample < 4; sample++) begin
+        wait_cycles(1);
+        if (vif.dbg1_fifo_level <= 9'd16)
+          seen_level[vif.dbg1_fifo_level] = 1'b1;
+      end
+      for (int unsigned level = 1; level <= 16; level++) begin
+        if (!seen_level[level])
+          `uvm_error(tag, $sformatf("fifo write-only level %0d was not observed",
+                                    level))
+      end
+
+      accepted_words++;
+      lineage_id++;
+      expect_simple_status_job(64'(accepted_words) * 64'd4,
+                               accepted_words[31:0] * 32'd4, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      drive_direct_opq_word({8'h00, sequence_no[15:0], accepted_words[7:0]},
+                            1'b1, sequence_no, lineage_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      wait_for_done(500000);
+      wait_cycles(2);
+      next_lineage_id = lineage_id;
+      env.axi_cfg.bvalid_lag = 1;
+    endtask
+
+    task run_fifo_single_read_burst_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit seen_level [0:16];
+      int unsigned accepted_words;
+      int unsigned lineage_id;
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      bit drained_empty;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      accepted_words = 0;
+      lineage_id = next_lineage_id;
+      env.axi_cfg.awready_lag = 5000;
+      env.axi_cfg.wready_lag = 5000;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0040_0000,
+                           64'h0000_0000_0001_0000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+
+      for (int unsigned beat_idx = 0; beat_idx < 16; beat_idx++) begin
+        for (int unsigned slot_idx = 0; slot_idx < RDMA_DMA_OPQ_PER_BEAT;
+             slot_idx++) begin
+          accepted_words++;
+          lineage_id++;
+          drive_direct_opq_word({8'h00, sequence_no[15:0],
+                                accepted_words[7:0]},
+                                1'b0, sequence_no, lineage_id);
+        end
+      end
+      wait_cycles(2);
+      if (vif.dbg1_fifo_level !== 9'd16)
+        `uvm_error(tag, $sformatf("prefill level got=%0d expected=16",
+                                  vif.dbg1_fifo_level))
+
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      drained_empty = 1'b0;
+      for (int unsigned cycle = 0; cycle < 20000; cycle++) begin
+        @(posedge vif.clk);
+        if (vif.dbg1_fifo_level <= 9'd16)
+          seen_level[vif.dbg1_fifo_level] = 1'b1;
+        if (vif.dbg1_fifo_level == 9'd0) begin
+          drained_empty = 1'b1;
+          break;
+        end
+      end
+      if (!drained_empty)
+        `uvm_error(tag, "fifo did not drain to empty during read-only burst")
+      for (int unsigned level = 0; level <= 16; level++) begin
+        if (!seen_level[level])
+          `uvm_error(tag, $sformatf("fifo read-only level %0d was not observed",
+                                    level))
+      end
+
+      accepted_words++;
+      lineage_id++;
+      expect_simple_status_job(64'(accepted_words) * 64'd4,
+                               accepted_words[31:0] * 32'd4, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      drive_direct_opq_word({8'h00, sequence_no[15:0], accepted_words[7:0]},
+                            1'b1, sequence_no, lineage_id);
+      wait_for_done(500000);
+      wait_cycles(2);
+      next_lineage_id = lineage_id;
+      env.axi_cfg.bvalid_lag = 1;
+    endtask
+
+    task preload_counter_input_near_max();
+      vif.preload_counter_input_near_max();
+    endtask
+
+    task preload_counter_bytes_near_max();
+      vif.preload_counter_bytes_near_max();
+    endtask
+
+    task preload_counter_bank_max();
+      vif.preload_counter_bank_max();
+    endtask
+
+    task run_counter_input_saturation_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      preload_counter_input_near_max();
+      run_dma_job(.tag(tag), .opq_words(2), .send_eoe(1'b1),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(300000));
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'hffff_ffff);
+    endtask
+
+    task run_counter_bytes_saturation_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      preload_counter_bytes_near_max();
+      run_dma_job(.tag(tag), .opq_words(16), .send_eoe(1'b1),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(300000));
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'hffff_ffff);
+    endtask
+
+    task run_counter_clear_max_case(input string tag);
+      preload_counter_bank_max();
+      pulse_clear_counters();
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'h0000_0000);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'h0000_0000);
+      check_u32_equal(tag, "cnt_halt", vif.cnt_halt, 32'h0000_0000);
+      check_u32_equal(tag, "cnt_eoe_observed", vif.cnt_eoe_observed,
+                      32'h0000_0000);
+    endtask
+
+    task run_writer_align_err_transition_case(
+      input string tag,
+      input bit [15:0] sqe_id
+    );
+      bit saw_report;
+      saw_report = 1'b0;
+      fork
+        begin
+          for (int unsigned cycle = 0; cycle < 64; cycle++) begin
+            @(posedge vif.clk);
+            if (vif.dbg1_writer_state === 4'd5)
+              saw_report = 1'b1;
+          end
+        end
+      join_none
+      run_dma_job(.tag(tag), .seg0_addr(64'h0000_0000_0010_0001),
+                  .opq_words(0), .send_eoe(1'b0), .sqe_id(sqe_id),
+                  .timeout_cycles(300000));
+      wait_cycles(2);
+      if (!saw_report)
+        `uvm_error(tag, "ALIGN_ERR report state was not observed")
+      check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
+                       1'b1);
+    endtask
+
+    task run_writer_two_segment_program_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      int unsigned program_visits;
+
+      stop_monitor = 1'b0;
+      program_visits = 0;
+      fork
+        begin
+          bit prev_program;
+          prev_program = 1'b0;
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if ((vif.dbg1_writer_state === 4'd1) && !prev_program)
+              program_visits++;
+            prev_program = (vif.dbg1_writer_state === 4'd1);
+          end
+        end
+      join_none
+
+      run_dma_job(.tag(tag), .seg0_span(64'h0000_0000_0000_1000),
+                  .seg1_span(64'h0000_0000_0000_1000),
+                  .opq_words(2048), .send_eoe(1'b0),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(500000));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (program_visits < 2)
+        `uvm_error(tag, $sformatf("PROGRAM visits got=%0d expected>=2",
+                                  program_visits))
+      check_status_bit(tag, "status[SEG_BOUNDARY_HIT]",
+                       RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
+    endtask
+
+    task run_writer_b_to_aw_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      bit [3:0] prev_state;
+      int unsigned b_to_aw_count;
+
+      stop_monitor = 1'b0;
+      prev_state = vif.dbg1_writer_state;
+      b_to_aw_count = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if ((prev_state == 4'd4) && (vif.dbg1_writer_state == 4'd2))
+              b_to_aw_count++;
+            prev_state = vif.dbg1_writer_state;
+          end
+        end
+      join_none
+
+      run_dma_job(.tag(tag), .seg0_span(64'h0000_0000_0000_2000),
+                  .opq_words(2048), .send_eoe(1'b0),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(500000));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (b_to_aw_count == 0)
+        `uvm_error(tag, "WR_B to WR_AW transition was not observed")
+    endtask
+
+    task run_writer_stall_case(
+      input string tag,
+      input bit [3:0] state,
+      input int unsigned aw_lag,
+      input int unsigned w_lag,
+      input int unsigned b_lag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      int unsigned hold_count;
+      int unsigned max_hold;
+
+      stop_monitor = 1'b0;
+      hold_count = 0;
+      max_hold = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.dbg1_writer_state === state) begin
+              hold_count++;
+              if (hold_count > max_hold)
+                max_hold = hold_count;
+            end else begin
+              hold_count = 0;
+            end
+          end
+        end
+      join_none
+
+      run_dma_job(.tag(tag), .opq_words(128), .send_eoe(1'b1),
+                  .awready_lag(aw_lag), .wready_lag(w_lag),
+                  .bvalid_lag(b_lag), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(500000));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (max_hold < 64)
+        `uvm_error(tag, $sformatf("state %0d max hold got=%0d expected>=64",
+                                  state, max_hold))
+    endtask
+
+    task run_job_req_opq_idle_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stayed_waiting;
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd32, 32'd32, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_for_dbg1_state(tag, 4'd2);
+      stayed_waiting = 1'b1;
+      for (int unsigned cycle = 0; cycle < 128; cycle++) begin
+        @(posedge vif.clk);
+        if ((vif.dbg1_writer_state !== 4'd2) ||
+            vif.m_axi_awvalid || vif.m_axi_wvalid || vif.job_done)
+          stayed_waiting = 1'b0;
+      end
+      if (!stayed_waiting)
+        `uvm_error(tag, "idle OPQ job did not wait in WR_ISSUING_AW")
+      check_u32_equal(tag, "cnt_input_w before OPQ", vif.cnt_input_w,
+                      32'h0000_0000);
+      drive_direct_words(8, 1'b1, sequence_no, next_lineage_id);
+      wait_for_done(300000);
+      wait_cycles(2);
+    endtask
+
     task run_halt_count_job(
       input string tag,
       input int unsigned dropped_words = 10,
@@ -4037,6 +4499,82 @@ package rdma_dma_engine_pkg;
             96: begin
               run_fifo_above_threshold_case(.tag(id), .sqe_id(sqe_id),
                                             .sequence_no(num));
+            end
+            default: begin
+              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+            end
+          endcase
+          return;
+        end
+        if (num <= 112) begin
+          case (num)
+            97: begin
+              run_fifo_overfill_guard_case(.tag(id), .attempted_entries(63),
+                                           .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            98: begin
+              run_fifo_overfill_guard_case(.tag(id), .attempted_entries(64),
+                                           .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            99: begin
+              run_fifo_recovery_after_halt_case(.tag(id), .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            end
+            100: begin
+              run_fifo_simultaneous_rw_case(.tag(id), .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            end
+            101: begin
+              run_fifo_single_write_burst_case(.tag(id), .sqe_id(sqe_id),
+                                               .sequence_no(num));
+            end
+            102: begin
+              run_fifo_single_read_burst_case(.tag(id), .sqe_id(sqe_id),
+                                              .sequence_no(num));
+            end
+            103: begin
+              run_writer_align_err_transition_case(.tag(id),
+                                                   .sqe_id(sqe_id));
+            end
+            104: begin
+              run_writer_two_segment_program_case(.tag(id), .sqe_id(sqe_id),
+                                                  .sequence_no(num));
+            end
+            105: begin
+              run_writer_b_to_aw_case(.tag(id), .sqe_id(sqe_id),
+                                      .sequence_no(num));
+            end
+            106: begin
+              run_writer_stall_case(.tag(id), .state(4'd2), .aw_lag(64),
+                                    .w_lag(0), .b_lag(1), .sqe_id(sqe_id),
+                                    .sequence_no(num));
+            end
+            107: begin
+              run_writer_stall_case(.tag(id), .state(4'd3), .aw_lag(0),
+                                    .w_lag(64), .b_lag(1), .sqe_id(sqe_id),
+                                    .sequence_no(num));
+            end
+            108: begin
+              run_writer_stall_case(.tag(id), .state(4'd4), .aw_lag(0),
+                                    .w_lag(0), .b_lag(64), .sqe_id(sqe_id),
+                                    .sequence_no(num));
+            end
+            109: begin
+              run_counter_input_saturation_case(.tag(id), .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            end
+            110: begin
+              run_counter_bytes_saturation_case(.tag(id), .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            end
+            111: begin
+              run_counter_clear_max_case(.tag(id));
+            end
+            112: begin
+              run_job_req_opq_idle_case(.tag(id), .sqe_id(sqe_id),
+                                        .sequence_no(num));
             end
             default: begin
               run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));

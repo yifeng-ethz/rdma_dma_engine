@@ -100,7 +100,48 @@ interface rdma_dma_engine_if #(
     dbg2_meta_source_ts <= '0;
     dbg2_meta_sequence_no <= '0;
   endtask
+
+  task automatic preload_counter_input_near_max();
+    @(negedge clk);
+    force rdma_dma_engine_tb_top.dut.cnt_input_w = 32'hffff_fffe;
+    force rdma_dma_engine_tb_top.dut.cnt_bytes_written = 32'h0000_0000;
+    force rdma_dma_engine_tb_top.dut.cnt_halt = 32'h0000_0000;
+    force rdma_dma_engine_tb_top.dut.cnt_eoe_observed = 32'h0000_0000;
+    @(negedge clk);
+    release rdma_dma_engine_tb_top.dut.cnt_input_w;
+    release rdma_dma_engine_tb_top.dut.cnt_bytes_written;
+    release rdma_dma_engine_tb_top.dut.cnt_halt;
+    release rdma_dma_engine_tb_top.dut.cnt_eoe_observed;
+    @(posedge clk);
+  endtask
+
+  task automatic preload_counter_bytes_near_max();
+    @(negedge clk);
+    force rdma_dma_engine_tb_top.dut.cnt_input_w = 32'h0000_0000;
+    force rdma_dma_engine_tb_top.dut.cnt_bytes_written = 32'hffff_ffe0;
+    force rdma_dma_engine_tb_top.dut.cnt_halt = 32'h0000_0000;
+    force rdma_dma_engine_tb_top.dut.cnt_eoe_observed = 32'h0000_0000;
+    @(negedge clk);
+    release rdma_dma_engine_tb_top.dut.cnt_input_w;
+    release rdma_dma_engine_tb_top.dut.cnt_bytes_written;
+    release rdma_dma_engine_tb_top.dut.cnt_halt;
+    release rdma_dma_engine_tb_top.dut.cnt_eoe_observed;
+    @(posedge clk);
+  endtask
+
+  task automatic preload_counter_bank_max();
+    @(negedge clk);
+    force rdma_dma_engine_tb_top.dut.cnt_input_w = 32'hffff_ffff;
+    force rdma_dma_engine_tb_top.dut.cnt_bytes_written = 32'hffff_ffff;
+    force rdma_dma_engine_tb_top.dut.cnt_halt = 32'hffff_ffff;
+    force rdma_dma_engine_tb_top.dut.cnt_eoe_observed = 32'hffff_ffff;
+    @(negedge clk);
+    release rdma_dma_engine_tb_top.dut.cnt_input_w;
+    release rdma_dma_engine_tb_top.dut.cnt_bytes_written;
+    release rdma_dma_engine_tb_top.dut.cnt_halt;
+    release rdma_dma_engine_tb_top.dut.cnt_eoe_observed;
+    @(posedge clk);
+  endtask
 endinterface
 
 `endif
-
