@@ -43,11 +43,17 @@ SV_SRCS := \
   $(UVM_PKG) \
   $(TB_DIR)/rdma_dma_engine_if.sv \
   $(DUT_SRCS) \
+  $(TB_DIR)/opq_axis_agent/opq_axis_pkg.sv \
+  $(TB_DIR)/job_agent/job_pkg.sv \
+  $(TB_DIR)/axi4_write_agent/axi4_write_pkg.sv \
   $(TB_DIR)/rdma_dma_engine_pkg.sv \
   $(TB_DIR)/rdma_dma_engine_tb_top.sv
 
 VLOG_FLAGS := -ini $(MODELSIM_INI) -sv -work work \
   +incdir+$(UVM_SRC) +incdir+$(TB_DIR) \
+  +incdir+$(TB_DIR)/opq_axis_agent \
+  +incdir+$(TB_DIR)/job_agent \
+  +incdir+$(TB_DIR)/axi4_write_agent \
   +define+DEBUG_LEVEL=$(DEBUG_LEVEL) +cover=$(COV_CODE)
 ifeq ($(DEBUG_LEVEL),2)
 VLOG_FLAGS += +define+RDMA_DMA_DEBUG2
@@ -95,4 +101,3 @@ regress:
 
 clean:
 	@echo "Manual cleanup required by project rule: no removal command is run by this Makefile."
-
