@@ -23,7 +23,8 @@ class opq_axis_event_sequence extends uvm_sequence #(opq_axis_pkg::opq_axis_item
     opq_axis_pkg::opq_axis_item item;
     for (int unsigned idx = 0; idx < word_count; idx++) begin
       item = opq_axis_pkg::opq_axis_item::type_id::create($sformatf("opq_word_%0d", idx));
-      item.data = data_base + idx;
+      item.data = data_base;
+      item.data[7:0] = data_base[7:0] + idx[7:0];
       item.datak = 4'h0;
       item.sop = (idx == 0);
       item.eoe = mark_eoe_on_last && (idx + 1 == word_count);

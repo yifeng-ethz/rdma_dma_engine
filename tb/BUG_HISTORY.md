@@ -41,10 +41,61 @@ Historical formal note:
 |---|---|---|---|---|---|---|---|
 | [BUG-000-H](#bug-000-h-bug-history-seeded-empty-at-dv-bring-up) | H | non-datapath-refactor | directed-only (DV bring-up bookkeeping) | fixed | DV bring-up | `pending` | BUG_HISTORY.md seeded empty at DV bring-up so the ledger lints clean before any real RTL/harness bug surfaces. |
 | [BUG-001-R](#bug-001-r-packer-word-order-reverses-dv-plan-msb-first-contract) | H | soft error | common (single full DMA word) | fixed | B002 dual-debug smoke | `3d2ba7f` | TB scoreboard and docs expected MSB-first while RTL/prototype pack LSB-first. |
-| [BUG-002-R](#bug-002-r-aw-burst-metadata-could-drift-and-underfill-streaming-bursts) | R | soft error | common (streaming DMA with AW backpressure or max-burst checks) | fixed | Phase B B015/B052 expansion | `pending` | AW fields were not fully transaction-latched and the writer latched bursts before the FIFO could reach max-burst depth. |
-| [BUG-003-H](#bug-003-h-dual-debug-lineage-scorecards-used-different-sequence-number-canonicals) | H | non-datapath-refactor | directed-only (dual-debug scorecard comparison for generated cases) | fixed | Phase B B013-B016 cross-validate | `pending` | DEBUG_LEVEL=1 scorecards synthesized sequence_no=1 while DEBUG_LEVEL=2 carried the generated case SQE-derived sequence number. |
+| [BUG-002-R](#bug-002-r-aw-burst-metadata-could-drift-and-underfill-streaming-bursts) | R | soft error | common (streaming DMA with AW backpressure or max-burst checks) | fixed | Phase B B015/B052 expansion | `eb0ce24` | AW fields were not fully transaction-latched and the writer latched bursts before the FIFO could reach max-burst depth. |
+| [BUG-003-H](#bug-003-h-dual-debug-lineage-scorecards-used-different-sequence-number-canonicals) | H | non-datapath-refactor | directed-only (dual-debug scorecard comparison for generated cases) | fixed | Phase B B013-B016 cross-validate | `eb0ce24` | DEBUG_LEVEL=1 scorecards synthesized sequence_no=1 while DEBUG_LEVEL=2 carried the generated case SQE-derived sequence number. |
+| [BUG-004-H](#bug-004-h-generated-phase-b-lineage-harness-coupled-independent-fields) | H | non-datapath-refactor | directed-only (long dual-debug generated-case comparison) | fixed | Phase B B017-B032 expansion | `pending` | Generated Phase B sequence metadata was coupled to SQE IDs and payload byte rollover, breaking long-case dual-debug evidence. |
 
 ## 2026-05-10
+
+### BUG-004-H: Generated Phase B lineage harness coupled independent fields
+- First seen in:
+  - `make -C tb/uvm -j2 phase_b_dbg1 phase_b_dbg2 REGRESS_CASES="test_b017_phase_b:B017 ... test_b032_phase_b:B032"` on `2026-05-10`
+  - `make -C tb/uvm cross_validate CASES="B017 ... B032"` after the
+    first clean B017-B032 simulation pass
+- Symptom:
+  - `B025` under DEBUG_LEVEL=2 reported lineage differences when the case
+    used `sqe_id=0x0000`
+  - after adding an independent `sequence_no` argument, the positional
+    `run_dma_job` call accidentally shifted `300000` into `idle_after_each`,
+    making `B017` run for an impractical number of cycles until the job was
+    stopped
+  - after the argument binding fix, long cases such as `B017` and `B032`
+    simulated cleanly but cross-validation rejected entries after payload byte
+    255 because DEBUG_LEVEL=1 reconstructed `sequence_no=2+` while
+    DEBUG_LEVEL=2 correctly retained `sequence_no=1`
+- Root cause:
+  - generated tests had tied DEBUG lineage `sequence_no` to `sqe_id`, even
+    though the DV cases only require `sqe_id_echo` and do not make SQE ID the
+    lineage sequence source
+  - the new `sequence_no` task argument was added ahead of
+    `idle_after_each`, and the call site still used positional arguments
+  - `opq_axis_event_sequence` used `item.data = data_base + idx`; after 256
+    words the low-byte counter carried into payload bits `[23:8]`, which are
+    the DEBUG_LEVEL=1 fallback sequence-number field
+- Fix status:
+  - state: fixed; B017-B032 now simulate, cross-validate, and merge
+  - mechanism: `run_dma_job` now carries an explicit `sequence_no`, the
+    generated-case call uses named arguments, and OPQ payload generation keeps
+    payload bits `[31:8]` stable while varying only the low byte
+  - before_fix_outcome: `B025` failed with DEBUG_LEVEL=2 lineage mismatches,
+    `B017` stalled after the positional argument shift, and long-case
+    cross-validation reported sequence-number differences starting at
+    lineage index 256
+  - after_fix_outcome: `make -C tb/uvm cross_validate CASES="B017 ... B032"`
+    reports zero residual mismatch across all 16 cases; `make -C tb/uvm
+    merge_case_ucdbs REGRESS_CASE_IDS="B017 ... B032"` writes
+    `tb/uvm/cov_after/B017.ucdb` through `B032.ucdb` with `Errors: 0`
+  - potential_hazard: closed for the generated Phase B sequence encoding;
+    later cases that intentionally vary lineage sequence numbers must pass
+    them through the explicit `sequence_no` argument
+  - Claude Opus 4.7 xhigh review decision: pending / not run
+- Runtime / coverage context:
+  - after-fix `B017` observes `opq=2048 aw=16 w=256 b=16 job_done=1`
+  - after-fix `B032` observes `opq=1024 aw=8 w=128 b=8 job_done=1`
+  - all cited runs saved per-debug UCDBs under `tb/uvm/cov_after/dbg{1,2}/`
+    and per-case merged UCDBs under `tb/uvm/cov_after/`
+- Commit:
+  - `pending`
 
 ### BUG-003-H: Dual-debug lineage scorecards used different sequence-number canonicals
 - First seen in:
@@ -82,7 +133,7 @@ Historical formal note:
   - after-fix `B015` observes `opq=128 aw=1 w=16 b=1 job_done=1`
   - all cited runs saved per-debug UCDBs under `tb/uvm/cov_after/dbg{1,2}/`
 - Commit:
-  - `pending`
+  - `eb0ce24` (`[NEW] Add Phase B B001-B016 evidence harness`)
 
 ### BUG-002-R: AW burst metadata could drift and underfill streaming bursts
 - First seen in:
@@ -122,7 +173,7 @@ Historical formal note:
   - the dual-debug cross-check for `B013 B014 B015 B016` reports zero
     residual mismatch after the fix
 - Commit:
-  - `pending`
+  - `eb0ce24` (`[NEW] Add Phase B B001-B016 evidence harness`)
 
 ### BUG-001-R: Packer word order reverses DV plan MSB-first contract
 - First seen in:

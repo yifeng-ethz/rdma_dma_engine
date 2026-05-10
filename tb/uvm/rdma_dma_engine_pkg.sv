@@ -281,6 +281,7 @@ package rdma_dma_engine_pkg;
       input int unsigned bvalid_lag = 1,
       input bit [1:0] bresp = axi4_write_pkg::AXI_RESP_OKAY,
       input bit [15:0] sqe_id = 16'h0100,
+      input bit [31:0] sequence_no = 32'd1,
       input int unsigned idle_after_each = 0,
       input int unsigned timeout_cycles = 200000
     );
@@ -357,8 +358,8 @@ package rdma_dma_engine_pkg;
         end else begin
           opq_seq = opq_axis_event_sequence::type_id::create({tag, "_opq_seq"});
           opq_seq.word_count = opq_words;
-          opq_seq.data_base = {8'h00, sqe_id, 8'h00};
-          opq_seq.sequence_no = {16'h0, sqe_id};
+          opq_seq.data_base = {8'h00, sequence_no[15:0], 8'h00};
+          opq_seq.sequence_no = sequence_no;
           opq_seq.idle_after_each = idle_after_each;
           opq_seq.mark_eoe_on_last = send_eoe;
           if (!send_eoe)
@@ -658,10 +659,21 @@ package rdma_dma_engine_pkg;
 
       if (two_seg)
         seg1_span = (seg1_span == 64'h0) ? 64'h1000 : seg1_span;
-      run_dma_job(id, seg0_addr, seg0_span, seg1_addr, seg1_span, words,
-                  send_eoe, zero_eoe, aw_lag, w_lag, b_lag, bresp,
-                  sqe_id, (prefix == "P") ? (num % 3) : idle_after_each,
-                  300000);
+      run_dma_job(.tag(id),
+                  .seg0_addr(seg0_addr),
+                  .seg0_span(seg0_span),
+                  .seg1_addr(seg1_addr),
+                  .seg1_span(seg1_span),
+                  .opq_words(words),
+                  .send_eoe(send_eoe),
+                  .zero_eoe(zero_eoe),
+                  .awready_lag(aw_lag),
+                  .wready_lag(w_lag),
+                  .bvalid_lag(b_lag),
+                  .bresp(bresp),
+                  .sqe_id(sqe_id),
+                  .idle_after_each((prefix == "P") ? (num % 3) : idle_after_each),
+                  .timeout_cycles(300000));
     endtask
 
     virtual task run_case();
