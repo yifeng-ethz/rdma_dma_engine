@@ -3671,15 +3671,232 @@ package rdma_dma_engine_pkg;
       input bit [1:0] bresp,
       input int signed error_index,
       input int unsigned opq_words,
+      input bit [63:0] seg0_span = 64'h0000_0000_0000_1000,
       input bit [15:0] sqe_id,
       input bit [31:0] sequence_no
     );
       env.axi_cfg.bresp_error_index = error_index;
       env.axi_cfg.bresp_default = axi4_write_pkg::AXI_RESP_OKAY;
-      run_dma_job(.tag(tag), .opq_words(opq_words), .send_eoe(1'b1),
-                  .bresp(bresp), .sqe_id(sqe_id),
+      run_dma_job(.tag(tag), .seg0_span(seg0_span), .opq_words(opq_words),
+                  .send_eoe(1'b1), .bresp(bresp), .sqe_id(sqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(500000));
       check_status_bit(tag, "status[AXI_ERR]", 6, 1'b1);
+      check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
+                       1'b0);
+    endtask
+
+    task run_error_burst_size_five_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_aw_observed_job(.tag(tag), .obs_words(40), .obs_send_eoe(1'b1),
+                          .expected_aw_count(1),
+                          .check_first_awlen(1'b1),
+                          .expected_first_awlen(4),
+                          .sqe_id(sqe_id),
+                          .sequence_no(sequence_no),
+                          .timeout_cycles(300000));
+    endtask
+
+    task run_error_tlast_without_tvalid_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [31:0] input_before;
+      input_before = vif.cnt_input_w;
+      pulse_zero_eoe();
+      wait_cycles(4);
+      check_u32_equal(tag, "cnt_input_w after ignored tlast",
+                      vif.cnt_input_w, input_before);
+      if (env.scb.aw_count != 0 || env.scb.w_count != 0)
+        `uvm_error(tag, "tlast without tvalid produced AXI traffic")
+      run_dma_job(.tag({tag, "_clean"}), .opq_words(8),
+                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+    endtask
+
+    task run_error_sop_mid_event_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd12, 32'd12, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_opq_word({8'h00, sequence_no[15:0], 8'h00},
+                            1'b0, sequence_no, next_lineage_id + 1);
+      @(negedge vif.clk);
+      vif.s_axis_opq_tdata <= {4'h0, 8'h00, sequence_no[15:0], 8'h01};
+      vif.s_axis_opq_tvalid <= 1'b1;
+      vif.s_axis_opq_tlast <= 1'b0;
+      vif.s_axis_opq_tuser <= 2'b01;
+      vif.dbg2_meta_valid <= 1'b1;
+      vif.dbg2_meta_lane <= 4'h0;
+      vif.dbg2_meta_hit_id <= next_lineage_id + 2;
+      vif.dbg2_meta_source_ts <= next_lineage_id + 2;
+      vif.dbg2_meta_sequence_no <= sequence_no;
+      do begin
+        @(posedge vif.clk);
+      end while (vif.s_axis_opq_tready !== 1'b1);
+      @(negedge vif.clk);
+      vif.s_axis_opq_tvalid <= 1'b0;
+      vif.s_axis_opq_tuser <= '0;
+      vif.dbg2_meta_valid <= 1'b0;
+      drive_direct_opq_word({8'h00, sequence_no[15:0], 8'h02},
+                            1'b1, sequence_no, next_lineage_id + 3);
+      next_lineage_id += 3;
+      wait_for_done(300000);
+      wait_cycles(2);
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd3);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd12);
+    endtask
+
+    task run_error_ignored_xdata_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [31:0] input_before;
+      input_before = vif.cnt_input_w;
+      @(negedge vif.clk);
+      vif.s_axis_opq_tdata <= 'x;
+      vif.s_axis_opq_tvalid <= 1'b0;
+      vif.s_axis_opq_tlast <= 1'b1;
+      vif.s_axis_opq_tuser <= 2'b01;
+      @(posedge vif.clk);
+      @(negedge vif.clk);
+      vif.s_axis_opq_tvalid <= 1'b0;
+      vif.s_axis_opq_tlast <= 1'b0;
+      vif.s_axis_opq_tuser <= '0;
+      vif.s_axis_opq_tdata <= '0;
+      wait_cycles(4);
+      check_u32_equal(tag, "cnt_input_w after ignored X data",
+                      vif.cnt_input_w, input_before);
+      run_dma_job(.tag({tag, "_clean"}), .opq_words(8),
+                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+    endtask
+
+    task run_error_single_beat_event_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_dma_job(.tag(tag), .opq_words(1), .send_eoe(1'b1),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(300000));
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd1);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd4);
+      check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
+    endtask
+
+    task run_error_overlap_job_req_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd256, 32'd256, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      env.axi_cfg.wready_lag = 64;
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(64, 1'b1, sequence_no, next_lineage_id);
+      wait_for_dbg1_state(tag, 4'd3);
+      drive_direct_job_req(64'h0000_0000_0030_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id + 16'd1, 16'h0001, 1);
+      env.axi_cfg.wready_lag = 0;
+      wait_for_done(300000);
+      wait_cycles(2);
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd1);
+      env.axi_cfg.bvalid_lag = 1;
+    endtask
+
+    task run_error_invalid_opcode_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd32, 32'd32, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'hdead, 1);
+      wait_cycles(2);
+      drive_direct_words(8, 1'b1, sequence_no, next_lineage_id);
+      wait_for_done(300000);
+      wait_cycles(2);
+      check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
+                       1'b0);
+      check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
+    endtask
+
+    task run_error_ten_align_then_valid_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      for (int unsigned idx = 0; idx < 10; idx++) begin
+        run_dma_job(.tag($sformatf("%s_align%0d", tag, idx)),
+                    .seg0_addr(64'h0000_0000_0010_0001 + idx),
+                    .opq_words(0), .send_eoe(1'b0),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx),
+                    .timeout_cycles(300000));
+      end
+      run_dma_job(.tag({tag, "_valid"}), .opq_words(8), .send_eoe(1'b1),
+                  .sqe_id(sqe_id + 16'd10),
+                  .sequence_no(sequence_no + 32'd10),
+                  .timeout_cycles(300000));
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd11);
+      check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
+                       1'b0);
+    endtask
+
+    task run_error_large_span_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_aw_observed_job(.tag(tag),
+                          .obs_seg0_addr(64'h0000_0000_8000_0000),
+                          .obs_seg0_span(64'h0000_0000_ffff_f000),
+                          .obs_words(64),
+                          .obs_send_eoe(1'b1),
+                          .expected_aw_count(1),
+                          .expected_first_aw(64'h0000_0000_8000_0000),
+                          .sqe_id(sqe_id),
+                          .sequence_no(sequence_no),
+                          .timeout_cycles(300000));
       check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
                        1'b0);
     endtask
@@ -9219,9 +9436,64 @@ package rdma_dma_engine_pkg;
             default: run_error_idle_reset_case(id);
           endcase
           return;
-        end else if (num <= 34) begin
-          bresp = (num == 30 || num == 34) ? 2'b11 : axi4_write_pkg::AXI_RESP_SLVERR;
-          words = 64;
+        end else if (num <= 48) begin
+          case (num)
+            33: run_error_bresp_case(.tag(id),
+                                     .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
+                                     .error_index(-1),
+                                     .opq_words(1280),
+                                     .seg0_span(64'h0000_0000_0000_2000),
+                                     .sqe_id(sqe_id),
+                                     .sequence_no(num));
+            34: run_error_bresp_case(.tag(id), .bresp(2'b11),
+                                     .error_index(0),
+                                     .opq_words(256),
+                                     .sqe_id(sqe_id),
+                                     .sequence_no(num));
+            35: run_job_req_opq_idle_case(.tag(id),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            36: run_error_burst_size_five_case(.tag(id),
+                                               .sqe_id(sqe_id),
+                                               .sequence_no(num));
+            37: run_fifo_single_read_burst_case(.tag(id),
+                                                .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            38: run_error_tlast_without_tvalid_case(.tag(id),
+                                                    .sqe_id(sqe_id),
+                                                    .sequence_no(num));
+            39: run_error_sop_mid_event_case(.tag(id),
+                                             .sqe_id(sqe_id),
+                                             .sequence_no(num));
+            40: run_dma_job(.tag(id), .opq_words(64),
+                            .send_eoe(1'b1), .sqe_id(sqe_id),
+                            .sequence_no(num), .idle_after_each(0),
+                            .timeout_cycles(300000));
+            41: run_job_req_opq_idle_case(.tag(id),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            42: run_error_ignored_xdata_case(.tag(id),
+                                             .sqe_id(sqe_id),
+                                             .sequence_no(num));
+            43: run_error_single_beat_event_case(.tag(id),
+                                                 .sqe_id(sqe_id),
+                                                 .sequence_no(num));
+            44: run_error_overlap_job_req_case(.tag(id),
+                                               .sqe_id(sqe_id),
+                                               .sequence_no(num));
+            45: run_error_reset_on_job_req_case(id);
+            46: run_error_invalid_opcode_case(.tag(id),
+                                              .sqe_id(sqe_id),
+                                              .sequence_no(num));
+            47: run_error_ten_align_then_valid_case(.tag(id),
+                                                    .sqe_id(sqe_id),
+                                                    .sequence_no(num));
+            48: run_error_large_span_case(.tag(id),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            default: run_error_idle_reset_case(id);
+          endcase
+          return;
         end else if (num <= 61) begin
           words = 16 + (num % 64);
           if (num >= 49 && num <= 52)
