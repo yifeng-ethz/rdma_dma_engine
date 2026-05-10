@@ -56,6 +56,8 @@ package axi4_write_pkg;
     bit [3:0] bid_value;
     int unsigned spurious_b_idle_cycles;
     int unsigned spurious_b_during_w_cycles;
+    int unsigned duplicate_b_response_count;
+    int unsigned duplicate_b_delay_cycles;
 
     function new(string name = "axi4_write_cfg");
       super.new(name);
@@ -68,6 +70,8 @@ package axi4_write_pkg;
       bid_value = 4'h0;
       spurious_b_idle_cycles = 0;
       spurious_b_during_w_cycles = 0;
+      duplicate_b_response_count = 0;
+      duplicate_b_delay_cycles = 0;
     endfunction
   endclass
 

@@ -14,7 +14,9 @@ class axi4_write_driver extends uvm_component;
   bit scheduled_wlast;
   bit b_clear_pending;
   bit spurious_b_clear_pending;
+  bit duplicate_b_pending;
   bit pending_b;
+  int unsigned duplicate_b_countdown;
   int unsigned b_response_count;
 
   function new(string name, uvm_component parent);
@@ -27,7 +29,9 @@ class axi4_write_driver extends uvm_component;
     scheduled_wlast = 1'b0;
     b_clear_pending = 1'b0;
     spurious_b_clear_pending = 1'b0;
+    duplicate_b_pending = 1'b0;
     pending_b = 1'b0;
+    duplicate_b_countdown = 0;
     b_response_count = 0;
   endfunction
 
@@ -54,13 +58,17 @@ class axi4_write_driver extends uvm_component;
         scheduled_wlast = 1'b0;
         b_clear_pending = 1'b0;
         spurious_b_clear_pending = 1'b0;
+        duplicate_b_pending = 1'b0;
         awready_countdown = 0;
         wready_countdown = 0;
         pending_b = 1'b0;
         pending_b_countdown = 0;
+        duplicate_b_countdown = 0;
         b_response_count = 0;
         cfg.spurious_b_idle_cycles = 0;
         cfg.spurious_b_during_w_cycles = 0;
+        cfg.duplicate_b_response_count = 0;
+        cfg.duplicate_b_delay_cycles = 0;
         continue;
       end
 
@@ -125,6 +133,21 @@ class axi4_write_driver extends uvm_component;
         spurious_b_clear_pending = 1'b0;
       end else if (vif.m_axi_bvalid && vif.m_axi_bready) begin
         b_clear_pending = 1'b1;
+        if (cfg.duplicate_b_response_count != 0) begin
+          duplicate_b_pending = 1'b1;
+          duplicate_b_countdown = cfg.duplicate_b_delay_cycles;
+          cfg.duplicate_b_response_count--;
+        end
+      end else if (duplicate_b_pending && !vif.m_axi_bvalid) begin
+        if (duplicate_b_countdown == 0) begin
+          vif.m_axi_bid <= cfg.bid_value;
+          vif.m_axi_bresp <= AXI_RESP_OKAY;
+          vif.m_axi_bvalid <= 1'b1;
+          duplicate_b_pending = 1'b0;
+          spurious_b_clear_pending = 1'b1;
+        end else begin
+          duplicate_b_countdown--;
+        end
       end else if ((cfg.spurious_b_idle_cycles != 0) &&
                    !vif.m_axi_bvalid && !pending_b &&
                    !vif.m_axi_awvalid && !vif.m_axi_wvalid) begin

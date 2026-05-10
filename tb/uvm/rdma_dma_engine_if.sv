@@ -143,6 +143,87 @@ interface rdma_dma_engine_if #(
     @(posedge clk);
   endtask
 
+  task automatic poke_fifo_level_inconsistency(output bit detected);
+    @(negedge clk);
+    force rdma_dma_engine_tb_top.dut.data_fifo_i.stored_level = 9'd7;
+    force rdma_dma_engine_tb_top.dut.data_fifo_i.output_valid = 1'b0;
+    @(posedge clk);
+    detected = (dbg1_fifo_level == 9'd7);
+    @(negedge clk);
+    release rdma_dma_engine_tb_top.dut.data_fifo_i.stored_level;
+    release rdma_dma_engine_tb_top.dut.data_fifo_i.output_valid;
+    @(posedge clk);
+  endtask
+
+  task automatic poke_fifo_full_guard(output bit detected);
+    @(negedge clk);
+    force rdma_dma_engine_tb_top.dut.data_fifo_i.stored_level = 9'd256;
+    force rdma_dma_engine_tb_top.dut.data_fifo_i.output_valid = 1'b0;
+    @(posedge clk);
+    detected = rdma_dma_engine_tb_top.dut.data_fifo_i.fifo_full &&
+               !rdma_dma_engine_tb_top.dut.data_fifo_i.write_ready;
+    @(negedge clk);
+    release rdma_dma_engine_tb_top.dut.data_fifo_i.stored_level;
+    release rdma_dma_engine_tb_top.dut.data_fifo_i.output_valid;
+    @(posedge clk);
+  endtask
+
+  task automatic poke_fifo_empty_read_guard(output bit detected);
+    @(negedge clk);
+    force rdma_dma_engine_tb_top.dut.data_fifo_i.stored_level = 9'd0;
+    force rdma_dma_engine_tb_top.dut.data_fifo_i.output_valid = 1'b0;
+    force rdma_dma_engine_tb_top.dut.fifo_read_ready = 1'b1;
+    @(posedge clk);
+    detected = rdma_dma_engine_tb_top.dut.data_fifo_i.fifo_empty &&
+               !rdma_dma_engine_tb_top.dut.data_fifo_i.read_valid;
+    @(negedge clk);
+    release rdma_dma_engine_tb_top.dut.data_fifo_i.stored_level;
+    release rdma_dma_engine_tb_top.dut.data_fifo_i.output_valid;
+    release rdma_dma_engine_tb_top.dut.fifo_read_ready;
+    @(posedge clk);
+  endtask
+
+  task automatic poke_fifo_almost_full_disagreement(output bit detected);
+    @(negedge clk);
+    force rdma_dma_engine_tb_top.dut.data_fifo_i.stored_level = 9'd200;
+    force rdma_dma_engine_tb_top.dut.data_fifo_i.output_valid = 1'b0;
+    force rdma_dma_engine_tb_top.dut.data_fifo_i.fifo_almost_full = 1'b0;
+    @(posedge clk);
+    detected = (dbg1_fifo_level >= 9'd192) && !dbg1_fifo_almost_full;
+    @(negedge clk);
+    release rdma_dma_engine_tb_top.dut.data_fifo_i.stored_level;
+    release rdma_dma_engine_tb_top.dut.data_fifo_i.output_valid;
+    release rdma_dma_engine_tb_top.dut.data_fifo_i.fifo_almost_full;
+    @(posedge clk);
+  endtask
+
+  task automatic poke_fifo_underrun_after_aw(
+    output bit aw_seen,
+    output bit w_stall_seen
+  );
+    aw_seen = 1'b0;
+    w_stall_seen = 1'b0;
+    @(negedge clk);
+    force rdma_dma_engine_tb_top.dut.writer_i.fifo_level = 9'd16;
+    force rdma_dma_engine_tb_top.dut.writer_i.fifo_valid = 1'b0;
+    for (int unsigned cycle = 0; cycle < 256; cycle++) begin
+      @(posedge clk);
+      if (m_axi_awvalid && m_axi_awready)
+        aw_seen = 1'b1;
+      if ((dbg1_writer_state == 4'd3) && !m_axi_wvalid) begin
+        w_stall_seen = 1'b1;
+        break;
+      end
+    end
+  endtask
+
+  task automatic release_fifo_underrun_poke();
+    @(negedge clk);
+    release rdma_dma_engine_tb_top.dut.writer_i.fifo_level;
+    release rdma_dma_engine_tb_top.dut.writer_i.fifo_valid;
+    @(posedge clk);
+  endtask
+
   function automatic logic [63:0] packer_cycle_count();
     return rdma_dma_engine_tb_top.dut.packer_i.packer.cycle_count;
   endfunction
