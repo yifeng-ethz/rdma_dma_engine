@@ -142,6 +142,10 @@ interface rdma_dma_engine_if #(
     release rdma_dma_engine_tb_top.dut.cnt_eoe_observed;
     @(posedge clk);
   endtask
+
+  function automatic logic [63:0] packer_cycle_count();
+    return rdma_dma_engine_tb_top.dut.packer_i.packer.cycle_count;
+  endfunction
 endinterface
 
 `endif
