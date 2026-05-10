@@ -7,6 +7,11 @@ package rdma_dma_engine_pkg;
   import job_pkg::*;
   import axi4_write_pkg::*;
   `include "uvm_macros.svh"
+  `uvm_analysis_imp_decl(_opq)
+  `uvm_analysis_imp_decl(_axi)
+  `uvm_analysis_imp_decl(_job)
+  `uvm_analysis_imp_decl(_dbg1)
+  `uvm_analysis_imp_decl(_dbg2)
 
   localparam int unsigned RDMA_DMA_DATA_W = 256;
   localparam int unsigned RDMA_DMA_BYTES = RDMA_DMA_DATA_W / 8;
@@ -19,6 +24,61 @@ package rdma_dma_engine_pkg;
   localparam int unsigned RDMA_DMA_ST_SEG0_ONLY = 4;
   localparam int unsigned RDMA_DMA_ST_ALIGN_ERR = 5;
 
+  class dbg1_taps_item extends uvm_sequence_item;
+    `uvm_object_utils(dbg1_taps_item)
+
+    bit [8:0] fifo_level;
+    bit fifo_almost_full;
+    bit [3:0] aw_inflight;
+    bit [7:0] w_beats_remaining;
+    bit [3:0] b_outstanding;
+    bit [3:0] packer_slot_idx;
+    bit packer_pending_eoe;
+    bit [3:0] writer_state;
+    bit halt_pulse;
+    longint unsigned cycle;
+
+    function new(string name = "dbg1_taps_item");
+      super.new(name);
+      fifo_level = '0;
+      fifo_almost_full = 1'b0;
+      aw_inflight = '0;
+      w_beats_remaining = '0;
+      b_outstanding = '0;
+      packer_slot_idx = '0;
+      packer_pending_eoe = 1'b0;
+      writer_state = '0;
+      halt_pulse = 1'b0;
+      cycle = 0;
+    endfunction
+  endclass
+
+  class dbg2_writer_item extends uvm_sequence_item;
+    `uvm_object_utils(dbg2_writer_item)
+
+    int unsigned slot;
+    bit [3:0] lane;
+    bit [31:0] hit_id;
+    bit [63:0] source_ts;
+    bit [31:0] sequence_no;
+    longint unsigned cycle;
+
+    function new(string name = "dbg2_writer_item");
+      super.new(name);
+      slot = 0;
+      lane = '0;
+      hit_id = '0;
+      source_ts = '0;
+      sequence_no = '0;
+      cycle = 0;
+    endfunction
+  endclass
+
+  `include "dbg1_taps_monitor.sv"
+  `include "dbg2_lineage_monitor.sv"
+  `include "scoreboard.sv"
+  `include "coverage.sv"
+
   class rdma_dma_engine_env extends uvm_env;
     `uvm_component_utils(rdma_dma_engine_env)
 
@@ -30,6 +90,10 @@ package rdma_dma_engine_pkg;
     opq_axis_agent opq_agent;
     job_agent job_agent_h;
     axi4_write_agent axi_agent;
+    dbg1_taps_monitor dbg1_mon;
+    dbg2_lineage_monitor dbg2_mon;
+    rdma_dma_engine_scoreboard scb;
+    rdma_dma_engine_coverage cov;
 
     function new(string name, uvm_component parent);
       super.new(name, parent);
@@ -61,6 +125,22 @@ package rdma_dma_engine_pkg;
       opq_agent = opq_axis_agent::type_id::create("opq_agent", this);
       job_agent_h = job_agent::type_id::create("job_agent_h", this);
       axi_agent = axi4_write_agent::type_id::create("axi_agent", this);
+      dbg1_mon = dbg1_taps_monitor::type_id::create("dbg1_mon", this);
+      if (debug_level >= 2)
+        dbg2_mon = dbg2_lineage_monitor::type_id::create("dbg2_mon", this);
+      scb = rdma_dma_engine_scoreboard::type_id::create("scb", this);
+      cov = rdma_dma_engine_coverage::type_id::create("cov", this);
+    endfunction
+
+    function void connect_phase(uvm_phase phase);
+      super.connect_phase(phase);
+      opq_agent.monitor.ap.connect(scb.opq_imp);
+      axi_agent.monitor.ap.connect(scb.axi_imp);
+      job_agent_h.monitor.ap.connect(scb.job_imp);
+      job_agent_h.monitor.ap.connect(cov.analysis_export);
+      dbg1_mon.ap.connect(scb.dbg1_imp);
+      if (debug_level >= 2 && dbg2_mon != null)
+        dbg2_mon.ap.connect(scb.dbg2_imp);
     endfunction
   endclass
 
@@ -70,10 +150,12 @@ package rdma_dma_engine_pkg;
     rdma_dma_engine_env env;
     virtual rdma_dma_engine_if vif;
     string case_id;
+    string scorecard_path;
 
     function new(string name, uvm_component parent);
       super.new(name, parent);
       case_id = "BASE";
+      scorecard_path = "";
     endfunction
 
     function string default_case_id();
@@ -87,6 +169,7 @@ package rdma_dma_engine_pkg;
         `uvm_fatal("BASE", "Missing rdma_dma_engine_if")
       if (!$value$plusargs("CASE_ID=%s", case_id))
         case_id = default_case_id();
+      void'($value$plusargs("SCORECARD=%s", scorecard_path));
     endfunction
 
     task apply_reset();
@@ -95,6 +178,8 @@ package rdma_dma_engine_pkg;
       repeat (16) @(posedge vif.clk);
       vif.reset_n <= 1'b1;
       repeat (8) @(posedge vif.clk);
+      env.scb.reset_model();
+      env.scb.configure_case(case_id, scorecard_path, env.debug_level);
     endtask
 
     task wait_cycles(input int unsigned cycles);

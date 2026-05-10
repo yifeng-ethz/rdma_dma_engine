@@ -86,7 +86,8 @@ compile_dbg2:
 
 run_one: compile
 	$(VSIM) $(VSIM_FLAGS) $(TOP) \
-	  +UVM_TESTNAME=$(TEST) +CASE_ID=$(CASE_ID) \
+	  +UVM_TESTNAME=$(TEST) +CASE_ID=$(CASE_ID) +DEBUG_LEVEL=$(DEBUG_LEVEL) \
+	  +SCORECARD=$(TB_DIR)/cov_after/dbg$(DEBUG_LEVEL)/$(CASE_ID).scorecard.json \
 	  -l $(TB_DIR)/logs/dbg$(DEBUG_LEVEL)/$(CASE_ID).log \
 	  -do "coverage save -onexit $(TB_DIR)/cov_after/dbg$(DEBUG_LEVEL)/$(CASE_ID).ucdb; run -all; quit -f"
 
