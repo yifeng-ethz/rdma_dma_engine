@@ -48,8 +48,49 @@ Historical formal note:
 | [BUG-006-R](#bug-006-r-eoe-tail-could-remain-behind-short-final-aw) | R | soft error | common (EOE after full FIFO beats but before a 16-beat burst is available) | fixed | Phase B B063 | `21aca89` | The writer could latch a short final AW before the packer had pushed the EOE partial tail into the FIFO. |
 | [BUG-007-R](#bug-007-r-eoe-reporting-could-close-before-later-event-beats-drained) | R | soft error | occasional (multi-event EOE jobs under host B-channel latency) | fixed | Phase B B066 | `c884e45` | The writer stopped accepting later event beats and reported after the first EOE/B response instead of draining all accepted multi-event data. |
 | [BUG-008-H](#bug-008-h-zero-latency-axi-completer-stretched-w-bursts) | H | non-datapath-refactor | directed-only (queue-math zero-latency throughput smoke) | fixed | Phase B B117 | `5119579` | The AXI completer deasserted WREADY between zero-lag W beats, stretching one 16-beat burst to 31 cycles. |
+| [BUG-009-H](#bug-009-h-halt-helper-restarted-debug2-lineage-inside-later-jobs) | H | non-datapath-refactor | directed-only (multi-job cross-validation after halt injection) | fixed | Phase B B125 | `pending` | The halt helper restarted DEBUG2 hit/source IDs instead of carrying the global OPQ lineage across a later job. |
 
 ## 2026-05-10
+
+### BUG-009-H: Halt helper restarted DEBUG2 lineage inside later jobs
+- First seen in:
+  - `make -C tb/uvm cross_validate CASES="B113 ... B128"` on `2026-05-10`
+  - generated Phase B case `B125` after the dual-debug simulations completed
+    with zero UVM errors
+- Symptom:
+  - `B125` passed payload checking in both debug lanes with `opq=1558 aw=15
+    w=195 b=15 done=3 mismatches=0`
+  - cross-validation failed because DEBUG_LEVEL=1 reconstructed global
+    OPQ-stream hit/source IDs while DEBUG_LEVEL=2 restarted the halt helper at
+    hit/source ID 1 inside the later job
+- Root cause:
+  - `run_halt_count_job` used local `accepted_words` values for DEBUG2
+    hit/source metadata, and did not advance `next_lineage_id` for ignored
+    halt-injected OPQ words
+  - this was valid for a standalone halt case starting at lineage zero, but it
+    broke multi-job cases such as B125 where the helper runs after earlier OPQ
+    traffic and before a later clean job
+- Fix status:
+  - state: fixed; halt-helper DEBUG2 sidecar metadata now follows the same
+    global OPQ-stream position as the DEBUG_LEVEL=1 fallback
+  - mechanism: the helper carries a monotonic `lineage_id` from
+    `next_lineage_id`, advances it for accepted and ignored OPQ words, drives
+    DEBUG2 sidecars from that value, and writes it back for subsequent jobs
+  - before_fix_outcome: B125 cross-validation reported lineage differences
+    beginning at index 8, for example DEBUG_LEVEL=1 `(0,9,9,225)` versus
+    DEBUG_LEVEL=2 `(0,1,1,225)`
+  - after_fix_outcome: isolated B125 rerun passed in DEBUG_LEVEL=1 and
+    DEBUG_LEVEL=2 with `opq=1558 aw=15 w=195 b=15 done=3 mismatches=0`;
+    `make -C tb/uvm cross_validate CASES="B125"` reported zero residual
+    mismatch
+  - potential_hazard: closed for generated multi-job halt cases; later
+    continuous-frame runs will still exercise inter-case lineage carryover
+  - Claude Opus 4.7 xhigh review decision: pending / not run
+- Runtime / coverage context:
+  - failing scorecards were captured at `tb/uvm/cov_after/dbg1/B125.scorecard.json`
+    and `tb/uvm/cov_after/dbg2/B125.scorecard.json`
+- Commit:
+  - `pending`
 
 ### BUG-008-H: Zero-latency AXI completer stretched W bursts
 - First seen in:
