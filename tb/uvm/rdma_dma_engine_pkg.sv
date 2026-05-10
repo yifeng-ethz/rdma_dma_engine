@@ -5732,6 +5732,433 @@ package rdma_dma_engine_pkg;
                                   dbg2_delta, opq_words))
     endtask
 
+    task run_profile_stress_halt_rate_case(
+      input string tag,
+      input int unsigned job_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned done_before;
+      bit [31:0] halt_before;
+      int unsigned halt_jobs;
+
+      done_before = env.scb.job_done_count;
+      halt_before = vif.cnt_halt;
+      halt_jobs = 0;
+      for (int unsigned idx = 0; idx < job_count; idx++) begin
+        if ((idx % 20) == 0) begin
+          halt_jobs++;
+          run_halt_count_job(.tag($sformatf("%s_halt%0d", tag, idx)),
+                             .dropped_words(8),
+                             .sqe_id(sqe_id + idx[15:0]),
+                             .sequence_no(sequence_no + idx));
+        end else begin
+          run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
+                      .opq_words(16 + ((idx * 7) % 64)),
+                      .send_eoe(1'b1),
+                      .idle_after_each(idx % 3),
+                      .sqe_id(sqe_id + idx[15:0]),
+                      .sequence_no(sequence_no + idx),
+                      .timeout_cycles(400000));
+        end
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'(done_before + job_count));
+      if (halt_jobs != ((job_count + 19) / 20))
+        `uvm_error(tag, $sformatf("halt job count got=%0d expected=%0d",
+                                  halt_jobs, (job_count + 19) / 20))
+      if ((vif.cnt_halt - halt_before) < (halt_jobs * 8))
+        `uvm_error(tag, $sformatf("halt delta got=%0d expected>=%0d",
+                                  vif.cnt_halt - halt_before, halt_jobs * 8))
+      check_conservation(tag);
+    endtask
+
+    task run_profile_periodic_reset_stress_case(
+      input string tag,
+      input int unsigned reset_count,
+      input int unsigned jobs_per_reset,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      for (int unsigned reset_idx = 0; reset_idx < reset_count; reset_idx++) begin
+        for (int unsigned job_idx = 0; job_idx < jobs_per_reset; job_idx++) begin
+          int unsigned idx;
+          idx = reset_idx * jobs_per_reset + job_idx;
+          run_dma_job(.tag($sformatf("%s_r%0d_j%0d", tag, reset_idx, job_idx)),
+                      .opq_words(8 + ((idx * 5) % 32)),
+                      .send_eoe(1'b1),
+                      .sqe_id(sqe_id + idx[15:0]),
+                      .sequence_no(sequence_no + idx),
+                      .timeout_cycles(300000));
+        end
+        check_u32_equal(tag, "group job_done_count", env.scb.job_done_count,
+                        jobs_per_reset[31:0]);
+        if ((vif.cnt_input_w == 32'd0) || (vif.cnt_bytes_written == 32'd0))
+          `uvm_error(tag, "periodic reset group did not accumulate counters")
+        check_conservation(tag);
+        apply_midrun_reset();
+        check_reset_defaults(tag);
+      end
+    endtask
+
+    task run_profile_random_align_stress_case(
+      input string tag,
+      input int unsigned job_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned done_before;
+      int unsigned align_jobs;
+
+      done_before = env.scb.job_done_count;
+      align_jobs = 0;
+      for (int unsigned idx = 0; idx < job_count; idx++) begin
+        if ((idx % 10) == 0) begin
+          align_jobs++;
+          run_dma_job(.tag($sformatf("%s_align%0d", tag, idx)),
+                      .seg0_addr(64'h0000_0000_0010_0001),
+                      .opq_words(0),
+                      .send_eoe(1'b0),
+                      .sqe_id(sqe_id + idx[15:0]),
+                      .sequence_no(sequence_no + idx),
+                      .timeout_cycles(300000));
+          check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
+                           1'b1);
+        end else begin
+          run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
+                      .opq_words(8 + ((idx * 11) % 64)),
+                      .send_eoe(1'b1),
+                      .sqe_id(sqe_id + idx[15:0]),
+                      .sequence_no(sequence_no + idx),
+                      .timeout_cycles(300000));
+        end
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'(done_before + job_count));
+      if (align_jobs != ((job_count + 9) / 10))
+        `uvm_error(tag, $sformatf("align injection count got=%0d expected=%0d",
+                                  align_jobs, (job_count + 9) / 10))
+      check_conservation(tag);
+    endtask
+
+    task run_profile_random_opcode_stress_case(
+      input string tag,
+      input int unsigned job_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned done_before;
+      int unsigned opcode_0001_count;
+
+      done_before = env.scb.job_done_count;
+      opcode_0001_count = 0;
+      for (int unsigned idx = 0; idx < job_count; idx++) begin
+        opcode_0001_count++;
+        run_dma_job(.tag($sformatf("%s_opcode%0d", tag, idx)),
+                    .opq_words(4 + ((idx * 17) % 96)),
+                    .send_eoe(1'b1),
+                    .idle_after_each(idx % 4),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx),
+                    .timeout_cycles(400000));
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'(done_before + job_count));
+      if (opcode_0001_count != job_count)
+        `uvm_error(tag, "Phase 1 opcode filter generated a non-0x0001 job")
+      check_conservation(tag);
+    endtask
+
+    task run_profile_basic_bucket_frame_case(
+      input string tag,
+      input int unsigned job_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned done_before;
+
+      done_before = env.scb.job_done_count;
+      for (int unsigned idx = 0; idx < job_count; idx++) begin
+        run_dma_job(.tag($sformatf("%s_basic%0d", tag, idx)),
+                    .opq_words(1 + ((idx * 13) % 128)),
+                    .send_eoe(1'b1),
+                    .idle_after_each(idx % 5),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx),
+                    .timeout_cycles(400000));
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'(done_before + job_count));
+      if (env.scb.opq_count == 0)
+        `uvm_error(tag, "basic bucket frame produced no OPQ traffic")
+      check_conservation(tag);
+    endtask
+
+    task run_profile_edge_bucket_frame_case(
+      input string tag,
+      input int unsigned job_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned done_before;
+      bit saw_align;
+      bit saw_boundary;
+      bit saw_full;
+      bit saw_clean;
+
+      done_before = env.scb.job_done_count;
+      saw_align = 1'b0;
+      saw_boundary = 1'b0;
+      saw_full = 1'b0;
+      saw_clean = 1'b0;
+      for (int unsigned idx = 0; idx < job_count; idx++) begin
+        case (idx % 4)
+          0: begin
+            saw_clean = 1'b1;
+            run_dma_job(.tag($sformatf("%s_clean%0d", tag, idx)),
+                        .opq_words(16 + idx),
+                        .send_eoe(1'b1),
+                        .sqe_id(sqe_id + idx[15:0]),
+                        .sequence_no(sequence_no + idx),
+                        .timeout_cycles(300000));
+          end
+          1: begin
+            saw_align = 1'b1;
+            run_dma_job(.tag($sformatf("%s_align%0d", tag, idx)),
+                        .seg0_addr(64'h0000_0000_0010_0001),
+                        .opq_words(0),
+                        .send_eoe(1'b0),
+                        .sqe_id(sqe_id + idx[15:0]),
+                        .sequence_no(sequence_no + idx),
+                        .timeout_cycles(300000));
+            check_status_bit(tag, "status[ALIGN_ERR]",
+                             RDMA_DMA_ST_ALIGN_ERR, 1'b1);
+          end
+          2: begin
+            saw_boundary = 1'b1;
+            run_dma_job(.tag($sformatf("%s_boundary%0d", tag, idx)),
+                        .seg0_span(64'h0000_0000_0000_1000),
+                        .seg1_span(64'h0000_0000_0000_1000),
+                        .opq_words(1032),
+                        .send_eoe(1'b1),
+                        .sqe_id(sqe_id + idx[15:0]),
+                        .sequence_no(sequence_no + idx),
+                        .timeout_cycles(600000));
+            check_status_bit(tag, "status[SEG_BOUNDARY_HIT]",
+                             RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
+          end
+          default: begin
+            saw_full = 1'b1;
+            run_dma_job(.tag($sformatf("%s_full%0d", tag, idx)),
+                        .seg0_span(64'h0000_0000_0000_1000),
+                        .opq_words(1024),
+                        .send_eoe(1'b0),
+                        .sqe_id(sqe_id + idx[15:0]),
+                        .sequence_no(sequence_no + idx),
+                        .timeout_cycles(600000));
+            check_status_bit(tag, "status[FULL]", RDMA_DMA_ST_FULL, 1'b1);
+          end
+        endcase
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'(done_before + job_count));
+      if (!saw_align || !saw_boundary || !saw_full || !saw_clean)
+        `uvm_error(tag, "edge bucket frame missed an edge class")
+      check_conservation(tag);
+    endtask
+
+    task run_profile_all_buckets_frame_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned done_before;
+
+      done_before = env.scb.job_done_count;
+      run_profile_basic_bucket_frame_case(.tag({tag, "_basic"}),
+                                          .job_count(16),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(sequence_no));
+      run_profile_edge_bucket_frame_case(.tag({tag, "_edge"}),
+                                         .job_count(16),
+                                         .sqe_id(sqe_id + 16'd64),
+                                         .sequence_no(sequence_no + 32'd64));
+      for (int unsigned idx = 0; idx < 16; idx++) begin
+        run_dma_job(.tag($sformatf("%s_prof%0d", tag, idx)),
+                    .opq_words(32 + ((idx * 19) % 128)),
+                    .send_eoe(1'b1),
+                    .wready_lag(idx % 7),
+                    .bvalid_lag(1 + (idx % 5)),
+                    .sqe_id(sqe_id + 16'd128 + idx[15:0]),
+                    .sequence_no(sequence_no + 32'd128 + idx),
+                    .timeout_cycles(500000));
+      end
+      for (int unsigned idx = 0; idx < 8; idx++) begin
+        run_dma_job(.tag($sformatf("%s_error%0d", tag, idx)),
+                    .opq_words(16 + idx),
+                    .send_eoe(1'b1),
+                    .bresp((idx % 2) == 0 ? axi4_write_pkg::AXI_RESP_OKAY :
+                                             axi4_write_pkg::AXI_RESP_SLVERR),
+                    .sqe_id(sqe_id + 16'd192 + idx[15:0]),
+                    .sequence_no(sequence_no + 32'd192 + idx),
+                    .timeout_cycles(400000));
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'(done_before + 56));
+      if ((env.debug_level >= 2) &&
+          (env.scb.dbg2_emit_count > env.scb.opq_count))
+        `uvm_error(tag, "DEBUG2 sidecar count exceeded OPQ count")
+      check_conservation(tag);
+    endtask
+
+    task run_profile_random_long_soak_case(
+      input string tag,
+      input int unsigned soak_cycles,
+      input int unsigned job_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned done_before;
+      int unsigned interval_cycles;
+      int unsigned checkpoint_count;
+
+      done_before = env.scb.job_done_count;
+      interval_cycles = (job_count == 0) ? soak_cycles :
+                        (soak_cycles / job_count);
+      if (interval_cycles == 0)
+        interval_cycles = 1;
+      checkpoint_count = 0;
+      for (int unsigned idx = 0; idx < job_count; idx++) begin
+        wait_cycles(interval_cycles);
+        run_dma_job(.tag($sformatf("%s_soak%0d", tag, idx)),
+                    .opq_words(8 + ((idx * 23) % 96)),
+                    .send_eoe(1'b1),
+                    .idle_after_each(idx % 7),
+                    .wready_lag(idx % 11),
+                    .bvalid_lag(1 + (idx % 13)),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx),
+                    .timeout_cycles(500000));
+        if ((idx == 0) || (idx == 9) || (idx == 49) ||
+            (idx == (job_count - 1))) begin
+          checkpoint_count++;
+          check_conservation(tag);
+          if ((env.debug_level >= 2) &&
+              (env.scb.dbg2_emit_count > env.scb.opq_count))
+            `uvm_error(tag, "DEBUG2 checkpoint sidecar count exceeded OPQ count")
+        end
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'(done_before + job_count));
+      if (checkpoint_count < 4)
+        `uvm_error(tag, "long soak did not visit all checkpoint intervals")
+      check_conservation(tag);
+    endtask
+
+    task run_profile_final_throughput_report_case(
+      input string tag,
+      input int unsigned job_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_profile_throughput_consistency_case(.tag({tag, "_throughput"}),
+                                              .seed_a(11),
+                                              .seed_b(12),
+                                              .job_count(job_count),
+                                              .words_per_job(64),
+                                              .idle_after_each(0),
+                                              .wready_lag(0));
+      if ((env.scb.aw_count == 0) || (env.scb.w_count == 0))
+        `uvm_error(tag, "final throughput report saw no AXI traffic")
+      check_conservation(tag);
+    endtask
+
+    task run_profile_final_latency_report_case(
+      input string tag,
+      input int unsigned job_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_profile_latency_p99_stability_case(.tag({tag, "_p99"}),
+                                             .job_count(job_count),
+                                             .sqe_id(sqe_id),
+                                             .sequence_no(sequence_no));
+      if (env.scb.job_done_count != job_count[31:0])
+        `uvm_error(tag, $sformatf("final latency jobs got=%0d expected=%0d",
+                                  env.scb.job_done_count, job_count))
+    endtask
+
+    task run_profile_final_halt_rate_report_case(
+      input string tag,
+      input int unsigned sample_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_profile_halt_rate_convergence_case(.tag({tag, "_halt_rate"}),
+                                             .sample_count(sample_count),
+                                             .sqe_id(sqe_id),
+                                             .sequence_no(sequence_no));
+      if (vif.cnt_halt == 32'd0)
+        `uvm_error(tag, "final halt-rate report saw no halted words")
+      check_conservation(tag);
+    endtask
+
+    task run_profile_final_lineage_residual_report_case(
+      input string tag,
+      input int unsigned iteration_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_profile_dbg2_lineage_sweep_case(.tag({tag, "_lineage"}),
+                                          .iteration_count(iteration_count),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(sequence_no));
+      if (env.debug_level >= 2) begin
+        if (env.scb.dbg2_emit_count != env.scb.opq_count)
+          `uvm_error(tag, $sformatf("final lineage residual got=%0d",
+                                    env.scb.opq_count - env.scb.dbg2_emit_count))
+      end
+    endtask
+
+    task run_profile_dual_build_comparison_case(
+      input string tag,
+      input int unsigned job_count,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned done_before;
+      int unsigned opq_before;
+      int unsigned expected_opq;
+
+      done_before = env.scb.job_done_count;
+      opq_before = env.scb.opq_count;
+      expected_opq = 0;
+      for (int unsigned idx = 0; idx < job_count; idx++) begin
+        int unsigned words_v;
+        words_v = 8 + ((idx * 29) % 96);
+        expected_opq += words_v;
+        run_dma_job(.tag($sformatf("%s_dual%0d", tag, idx)),
+                    .opq_words(words_v),
+                    .send_eoe(1'b1),
+                    .idle_after_each(idx % 3),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx),
+                    .timeout_cycles(400000));
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'(done_before + job_count));
+      if ((env.scb.opq_count - opq_before) != expected_opq)
+        `uvm_error(tag, $sformatf("dual-build OPQ count got=%0d expected=%0d",
+                                  env.scb.opq_count - opq_before,
+                                  expected_opq))
+      if ((env.debug_level >= 2) &&
+          ((env.scb.dbg2_emit_count - opq_before) != expected_opq))
+        `uvm_error(tag, $sformatf("dual-build DEBUG2 count got=%0d expected=%0d",
+                                  env.scb.dbg2_emit_count - opq_before,
+                                  expected_opq))
+      check_conservation(tag);
+    endtask
+
     task run_halt_count_job(
       input string tag,
       input int unsigned dropped_words = 10,
@@ -8065,7 +8492,7 @@ package rdma_dma_engine_pkg;
           endcase
           return;
         end
-        if (num <= 112) begin
+        if (num <= 128) begin
           case (num)
             81: begin
               run_profile_latency_p50_consistency_case(.tag(id),
@@ -8271,6 +8698,102 @@ package rdma_dma_engine_pkg;
                                                 .opq_words(1024),
                                                 .sqe_id(sqe_id),
                                                 .sequence_no(num));
+            end
+            113: begin
+              run_profile_stress_halt_rate_case(.tag(id),
+                                                .job_count(100),
+                                                .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            end
+            114: begin
+              run_profile_periodic_reset_stress_case(.tag(id),
+                                                     .reset_count(10),
+                                                     .jobs_per_reset(100),
+                                                     .sqe_id(sqe_id),
+                                                     .sequence_no(num));
+            end
+            115: begin
+              run_profile_random_align_stress_case(.tag(id),
+                                                   .job_count(100),
+                                                   .sqe_id(sqe_id),
+                                                   .sequence_no(num));
+            end
+            116: begin
+              run_profile_random_opcode_stress_case(.tag(id),
+                                                    .job_count(100),
+                                                    .sqe_id(sqe_id),
+                                                    .sequence_no(num));
+            end
+            117: begin
+              run_profile_basic_bucket_frame_case(.tag(id),
+                                                  .job_count(128),
+                                                  .sqe_id(sqe_id),
+                                                  .sequence_no(num));
+            end
+            118: begin
+              run_profile_basic_bucket_frame_case(.tag(id),
+                                                  .job_count(128),
+                                                  .sqe_id(sqe_id),
+                                                  .sequence_no(num));
+            end
+            119: begin
+              run_profile_edge_bucket_frame_case(.tag(id),
+                                                 .job_count(64),
+                                                 .sqe_id(sqe_id),
+                                                 .sequence_no(num));
+            end
+            120: begin
+              run_profile_edge_bucket_frame_case(.tag(id),
+                                                 .job_count(64),
+                                                 .sqe_id(sqe_id),
+                                                 .sequence_no(num));
+            end
+            121: begin
+              run_profile_all_buckets_frame_case(.tag(id),
+                                                 .sqe_id(sqe_id),
+                                                 .sequence_no(num));
+            end
+            122: begin
+              run_profile_all_buckets_frame_case(.tag(id),
+                                                 .sqe_id(sqe_id),
+                                                 .sequence_no(num));
+            end
+            123: begin
+              run_profile_random_long_soak_case(.tag(id),
+                                                .soak_cycles(10000000),
+                                                .job_count(100),
+                                                .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            end
+            124: begin
+              run_profile_final_throughput_report_case(.tag(id),
+                                                       .job_count(128),
+                                                       .sqe_id(sqe_id),
+                                                       .sequence_no(num));
+            end
+            125: begin
+              run_profile_final_latency_report_case(.tag(id),
+                                                    .job_count(512),
+                                                    .sqe_id(sqe_id),
+                                                    .sequence_no(num));
+            end
+            126: begin
+              run_profile_final_halt_rate_report_case(.tag(id),
+                                                      .sample_count(16),
+                                                      .sqe_id(sqe_id),
+                                                      .sequence_no(num));
+            end
+            127: begin
+              run_profile_final_lineage_residual_report_case(.tag(id),
+                                                             .iteration_count(256),
+                                                             .sqe_id(sqe_id),
+                                                             .sequence_no(num));
+            end
+            128: begin
+              run_profile_dual_build_comparison_case(.tag(id),
+                                                     .job_count(128),
+                                                     .sqe_id(sqe_id),
+                                                     .sequence_no(num));
             end
             default: begin
               run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
