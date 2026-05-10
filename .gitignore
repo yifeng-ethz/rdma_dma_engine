@@ -1,4 +1,5 @@
 .questa_static_screen/
+.questa_compile/
 DNI/
 .ip_lint_out/
 modelsim.ini
