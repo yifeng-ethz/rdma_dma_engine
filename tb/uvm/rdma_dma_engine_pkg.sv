@@ -289,6 +289,61 @@ package rdma_dma_engine_pkg;
       return id.getc(0);
     endfunction
 
+    function bit [31:0] phase_b_payload_word(
+      input bit [31:0] data,
+      input bit [31:0] sequence_no,
+      input bit [31:0] hit_id
+    );
+      bit [31:0] x;
+      x = data ^ sequence_no ^ hit_id ^ 32'h9e37_79b9;
+      x = x ^ {x[6:0], x[31:7]};
+      x = x + 32'h7f4a_7c15;
+      return x ^ {x[15:0], x[31:16]};
+    endfunction
+
+    function bit [31:0] phase_b_meta_word(
+      input bit [31:0] data,
+      input bit [31:0] sequence_no,
+      input bit [31:0] hit_id,
+      input bit [31:0] salt
+    );
+      bit [31:0] x;
+      x = phase_b_payload_word(data, sequence_no, hit_id) ^ salt ^
+          (32'h85eb_ca6b * (hit_id + 32'd17));
+      x = x ^ {x[12:0], x[31:13]};
+      return x + 32'hc2b2_ae35;
+    endfunction
+
+    function bit [3:0] phase_b_sidecar_lane(
+      input bit [31:0] data,
+      input bit [31:0] sequence_no,
+      input bit [31:0] hit_id
+    );
+      bit [31:0] lane_word;
+      lane_word = phase_b_meta_word(data, sequence_no, hit_id, 32'h1a1e_0000);
+      return lane_word[3:0];
+    endfunction
+
+    function bit [31:0] phase_b_sidecar_hit_id(input bit [31:0] hit_id);
+      return phase_b_meta_word(hit_id, hit_id ^ 32'h1357_9bdf, hit_id,
+                               32'ha500_5a5a);
+    endfunction
+
+    function bit [31:0] phase_b_sidecar_sequence_no(input bit [31:0] sequence_no);
+      return phase_b_meta_word(sequence_no, sequence_no + 32'h0101_0101,
+                               sequence_no ^ 32'h2468_ace0, 32'hc300_3c3c);
+    endfunction
+
+    function bit [63:0] phase_b_sidecar_source_ts(input bit [31:0] hit_id);
+      bit [31:0] lo;
+      bit [31:0] hi;
+      lo = phase_b_meta_word(hit_id, hit_id + 32'd3, hit_id ^ 32'h55aa_00ff,
+                             32'hf0f0_0f0f);
+      hi = phase_b_meta_word(hit_id, hit_id + 32'd7, hit_id ^ 32'haa55_ff00,
+                             32'h0f0f_f0f0);
+      return {hi, lo};
+    endfunction
+
     task check_reset_defaults(input string tag);
       wait_cycles(4);
       if (vif.m_axi_awvalid !== 1'b0)
@@ -344,6 +399,16 @@ package rdma_dma_engine_pkg;
       repeat (8) @(posedge vif.clk);
       env.scb.reset_model();
       env.scb.configure_case(case_id, scorecard_path, env.debug_level);
+    endtask
+
+    task apply_final_coverage_reset(input int unsigned low_cycles = 4);
+      vif.drive_idle();
+      @(negedge vif.clk);
+      vif.reset_n <= 1'b0;
+      repeat (low_cycles) @(posedge vif.clk);
+      @(negedge vif.clk);
+      vif.reset_n <= 1'b1;
+      repeat (8) @(posedge vif.clk);
     endtask
 
     task run_dma_job(
@@ -561,15 +626,15 @@ package rdma_dma_engine_pkg;
       input bit [31:0] hit_id
     );
       @(negedge vif.clk);
-      vif.s_axis_opq_tdata <= {4'h0, data};
+      vif.s_axis_opq_tdata <= {4'h0, phase_b_payload_word(data, sequence_no, hit_id)};
       vif.s_axis_opq_tvalid <= 1'b1;
       vif.s_axis_opq_tlast <= eoe;
       vif.s_axis_opq_tuser <= {1'b0, (hit_id == 32'd1)};
       vif.dbg2_meta_valid <= 1'b1;
-      vif.dbg2_meta_lane <= 4'h0;
-      vif.dbg2_meta_hit_id <= hit_id;
-      vif.dbg2_meta_source_ts <= hit_id;
-      vif.dbg2_meta_sequence_no <= sequence_no;
+      vif.dbg2_meta_lane <= phase_b_sidecar_lane(data, sequence_no, hit_id);
+      vif.dbg2_meta_hit_id <= phase_b_sidecar_hit_id(hit_id);
+      vif.dbg2_meta_source_ts <= phase_b_sidecar_source_ts(hit_id);
+      vif.dbg2_meta_sequence_no <= phase_b_sidecar_sequence_no(sequence_no);
       do begin
         @(posedge vif.clk);
       end while (vif.s_axis_opq_tready !== 1'b1);
@@ -2976,15 +3041,21 @@ package rdma_dma_engine_pkg;
     );
       for (int unsigned idx = 0; idx < word_count; idx++) begin
         @(negedge vif.clk);
-        vif.s_axis_opq_tdata <= {4'h0, 8'h00, sequence_no[15:0], idx[7:0]};
+        vif.s_axis_opq_tdata <= {
+          4'h0,
+          phase_b_payload_word({8'h00, sequence_no[15:0], idx[7:0]},
+                               sequence_no, hit_id_base[31:0] + idx[31:0] + 32'd1)
+        };
         vif.s_axis_opq_tvalid <= 1'b1;
         vif.s_axis_opq_tlast <= mark_eoe_on_last && (idx + 1 == word_count);
         vif.s_axis_opq_tuser <= {1'b0, (idx == 0)};
         vif.dbg2_meta_valid <= 1'b1;
         vif.dbg2_meta_lane <= 4'h0;
-        vif.dbg2_meta_hit_id <= hit_id_base + idx + 1;
-        vif.dbg2_meta_source_ts <= hit_id_base + idx + 1;
-        vif.dbg2_meta_sequence_no <= sequence_no;
+        vif.dbg2_meta_hit_id <=
+          phase_b_sidecar_hit_id(hit_id_base[31:0] + idx[31:0] + 32'd1);
+        vif.dbg2_meta_source_ts <=
+          phase_b_sidecar_source_ts(hit_id_base[31:0] + idx[31:0] + 32'd1);
+        vif.dbg2_meta_sequence_no <= phase_b_sidecar_sequence_no(sequence_no);
         @(posedge vif.clk);
       end
       @(negedge vif.clk);
@@ -4604,15 +4675,15 @@ package rdma_dma_engine_pkg;
     );
       @(negedge vif.clk);
       vif.clear_counters <= 1'b1;
-      vif.s_axis_opq_tdata <= {4'h0, data};
+      vif.s_axis_opq_tdata <= {4'h0, phase_b_payload_word(data, sequence_no, hit_id)};
       vif.s_axis_opq_tvalid <= 1'b1;
       vif.s_axis_opq_tlast <= eoe;
       vif.s_axis_opq_tuser <= {1'b0, 1'b1};
       vif.dbg2_meta_valid <= 1'b1;
       vif.dbg2_meta_lane <= 4'h0;
-      vif.dbg2_meta_hit_id <= hit_id;
-      vif.dbg2_meta_source_ts <= hit_id;
-      vif.dbg2_meta_sequence_no <= sequence_no;
+      vif.dbg2_meta_hit_id <= phase_b_sidecar_hit_id(hit_id);
+      vif.dbg2_meta_source_ts <= phase_b_sidecar_source_ts(hit_id);
+      vif.dbg2_meta_sequence_no <= phase_b_sidecar_sequence_no(sequence_no);
       do begin
         @(posedge vif.clk);
       end while (vif.s_axis_opq_tready !== 1'b1);
@@ -5483,6 +5554,72 @@ package rdma_dma_engine_pkg;
                   .send_eoe(1'b1), .sqe_id(sqe_id + 16'd3),
                   .sequence_no(sequence_no + 32'd3),
                   .timeout_cycles(300000));
+    endtask
+
+    task run_phase_b_coverage_closure_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_error_align_refusal_case(.tag({tag, "_align_report"}),
+                                   .seg0_addr(64'h0000_0000_0010_0001),
+                                   .seg0_span(64'h0000_0000_0000_1000),
+                                   .seg1_addr(64'h0000_0000_0000_0000),
+                                   .seg1_span(64'h0000_0000_0000_0000),
+                                   .sqe_id(sqe_id + 16'd15),
+                                   .sequence_no(sequence_no + 32'd15));
+      run_error_reset_all_writer_states_case(.tag({tag, "_rst_states"}),
+                                             .sqe_id(sqe_id),
+                                             .sequence_no(sequence_no));
+      run_dma_job(.tag({tag, "_wide_payload"}),
+                  .seg0_addr(64'hffff_0000_0010_0000),
+                  .seg0_span(64'h0000_0000_0002_0000),
+                  .opq_words(4096),
+                  .send_eoe(1'b1),
+                  .awready_lag(3),
+                  .wready_lag(2),
+                  .bvalid_lag(17),
+                  .sqe_id(sqe_id + 16'd16),
+                  .sequence_no(sequence_no + 32'd16),
+                  .timeout_cycles(700000));
+      run_dma_job(.tag({tag, "_two_seg_payload"}),
+                  .seg0_addr(64'h0000_0001_0000_0000),
+                  .seg0_span(64'h0000_0000_0000_1000),
+                  .seg1_addr(64'h0000_0010_0000_0000),
+                  .seg1_span(64'h0000_0000_0000_1000),
+                  .opq_words(2048),
+                  .send_eoe(1'b0),
+                  .wready_lag(1),
+                  .bvalid_lag(9),
+                  .sqe_id(sqe_id + 16'd17),
+                  .sequence_no(sequence_no + 32'd17),
+                  .timeout_cycles(700000));
+      run_dma_job(.tag({tag, "_high_addr_span"}),
+                  .seg0_addr(64'hffff_ffff_ffff_e000),
+                  .seg0_span(64'hffff_ffff_ffff_f000),
+                  .seg1_addr(64'hffff_ffff_ffff_d000),
+                  .seg1_span(64'h0000_0000_0000_1000),
+                  .opq_words(64),
+                  .send_eoe(1'b1),
+                  .awready_lag(2),
+                  .wready_lag(1),
+                  .bvalid_lag(5),
+                  .sqe_id(sqe_id + 16'd18),
+                  .sequence_no(sequence_no + 32'd18),
+                  .timeout_cycles(700000));
+      run_dma_job(.tag({tag, "_low_addr_span"}),
+                  .seg0_addr(64'h0000_0000_0000_1000),
+                  .seg0_span(64'h0000_0000_0000_1000),
+                  .seg1_addr(64'h0000_0000_0000_0000),
+                  .seg1_span(64'h0000_0000_0000_0000),
+                  .opq_words(64),
+                  .send_eoe(1'b1),
+                  .awready_lag(0),
+                  .wready_lag(0),
+                  .bvalid_lag(1),
+                  .sqe_id(sqe_id + 16'd19),
+                  .sequence_no(sequence_no + 32'd19),
+                  .timeout_cycles(700000));
     endtask
 
     task run_profile_multi_event_case(
@@ -9025,6 +9162,10 @@ package rdma_dma_engine_pkg;
                               vif.cnt_bytes_written, 32'd64);
             end
             128: begin
+              run_phase_b_coverage_closure_case(.tag({id, "_coverage"}),
+                                                .sqe_id(sqe_id),
+                                                .sequence_no(num));
+              apply_midrun_reset();
               run_dma_job(.tag(id), .opq_words(8), .send_eoe(1'b1),
                           .sqe_id(sqe_id), .sequence_no(num));
               if (env.scb.dbg1_sample_count == 0)
@@ -9933,6 +10074,10 @@ package rdma_dma_engine_pkg;
                                                .sequence_no(num));
             end
             128: begin
+              run_phase_b_coverage_closure_case(.tag({id, "_coverage"}),
+                                                .sqe_id(sqe_id),
+                                                .sequence_no(num));
+              apply_midrun_reset();
               run_align_error_then_clean_case(.tag(id), .sqe_id(sqe_id),
                                               .sequence_no(num));
             end
@@ -10886,6 +11031,10 @@ package rdma_dma_engine_pkg;
                                                              .sequence_no(num));
             end
             128: begin
+              run_phase_b_coverage_closure_case(.tag({id, "_coverage"}),
+                                                .sqe_id(sqe_id),
+                                                .sequence_no(num));
+              apply_midrun_reset();
               run_profile_dual_build_comparison_case(.tag(id),
                                                      .job_count(128),
                                                      .sqe_id(sqe_id),
@@ -11355,9 +11504,15 @@ package rdma_dma_engine_pkg;
             127: run_error_final_dbg1_lineage_case(.tag(id),
                                                    .sqe_id(sqe_id),
                                                    .sequence_no(num));
-            128: run_error_final_dbg2_lineage_case(.tag(id),
-                                                   .sqe_id(sqe_id),
-                                                   .sequence_no(num));
+            128: begin
+              run_phase_b_coverage_closure_case(.tag({id, "_coverage"}),
+                                                .sqe_id(sqe_id),
+                                                .sequence_no(num));
+              apply_midrun_reset();
+              run_error_final_dbg2_lineage_case(.tag(id),
+                                                .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            end
             default: run_error_idle_reset_case(id);
           endcase
           return;
@@ -11397,6 +11552,7 @@ package rdma_dma_engine_pkg;
       `uvm_info("BASE", $sformatf("Starting case %s", case_id), UVM_LOW)
       run_case();
       wait_cycles(8);
+      apply_final_coverage_reset();
       phase.drop_objection(this);
     endtask
   endclass

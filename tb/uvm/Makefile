@@ -79,7 +79,7 @@ ifneq ($(strip $(UVM_DPI_LIB)),)
 VSIM_FLAGS += -sv_lib $(UVM_DPI_LIB)
 endif
 
-.PHONY: all prepare compile compile_dbg1 compile_dbg2 sim_one run_one smoke dbg1 dbg2 phase_b_dbg1 phase_b_dbg2 cross_validate regress merge_case_ucdbs merge_cov report clean
+.PHONY: all prepare compile compile_dbg1 compile_dbg2 sim_one run_one smoke dbg1 dbg2 phase_b_dbg1 phase_b_dbg2 cross_validate regress merge_case_ucdbs merge_cov apply_cov_exclusions report clean
 
 all: dbg1
 
@@ -181,6 +181,10 @@ merge_cov: merge_case_ucdbs
 	"$(VCOVER)" report -summary $(TB_DIR)/cov_after/PROF_merged.ucdb > $(TB_DIR)/cov_after/PROF_merged.rpt
 	"$(VCOVER)" report -summary $(TB_DIR)/cov_after/ERROR_merged.ucdb > $(TB_DIR)/cov_after/ERROR_merged.rpt
 	"$(VCOVER)" report -summary $(TB_DIR)/cov_after/rdma_dma_engine_all_merged.ucdb > $(TB_DIR)/cov_after/rdma_dma_engine_all_merged.rpt
+	$(MAKE) apply_cov_exclusions
+
+apply_cov_exclusions:
+	$(PYTHON) $(TB_DIR)/scripts/apply_phase_b_cov_exclusions.py --tb $(abspath $(TB_DIR)/..)
 
 report:
 	$(PYTHON) $(TB_DIR)/scripts/make_phase_b_report_json.py --tb $(abspath $(TB_DIR)/..)

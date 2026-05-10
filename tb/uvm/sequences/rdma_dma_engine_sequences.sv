@@ -21,19 +21,37 @@ class opq_axis_event_sequence extends uvm_sequence #(opq_axis_pkg::opq_axis_item
     idle_after_each = 0;
   endfunction
 
+  function bit [31:0] payload_word(input int unsigned idx);
+    bit [31:0] x;
+    x = data_base ^ sequence_no ^ (32'h9e37_79b9 * (idx[31:0] + 32'd1));
+    x = x ^ {x[6:0], x[31:7]};
+    x = x + 32'h7f4a_7c15;
+    return x ^ {x[15:0], x[31:16]};
+  endfunction
+
+  function bit [31:0] meta_word(input int unsigned idx, input bit [31:0] salt);
+    bit [31:0] x;
+    x = payload_word(idx) ^ salt ^ (32'h85eb_ca6b * (idx[31:0] + 32'd17));
+    x = x ^ {x[12:0], x[31:13]};
+    return x + 32'hc2b2_ae35;
+  endfunction
+
   task body();
     opq_axis_pkg::opq_axis_item item;
+    bit [31:0] meta_a;
+    bit [31:0] meta_b;
     for (int unsigned idx = 0; idx < word_count; idx++) begin
       item = opq_axis_pkg::opq_axis_item::type_id::create($sformatf("opq_word_%0d", idx));
-      item.data = data_base;
-      item.data[7:0] = data_base[7:0] + idx[7:0];
+      meta_a = meta_word(idx, 32'ha500_5a5a);
+      meta_b = meta_word(idx, 32'hc300_3c3c);
+      item.data = payload_word(idx);
       item.datak = 4'h0;
       item.sop = (idx == 0);
       item.eoe = mark_eoe_on_last && (idx + 1 == word_count);
-      item.lane = 4'h0;
-      item.hit_id = hit_id_base + idx + 1;
-      item.source_ts = hit_id_base + idx + 1;
-      item.sequence_no = sequence_no;
+      item.lane = meta_a[3:0];
+      item.hit_id = meta_a ^ hit_id_base[31:0];
+      item.source_ts = {meta_b, ~meta_a};
+      item.sequence_no = meta_b ^ sequence_no;
       item.idle_after = (idx + 1 == word_count) ? 0 : idle_after_each;
       start_item(item);
       finish_item(item);
