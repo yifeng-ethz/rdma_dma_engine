@@ -7,6 +7,7 @@ class opq_axis_event_sequence extends uvm_sequence #(opq_axis_pkg::opq_axis_item
   int unsigned word_count;
   bit [31:0] data_base;
   bit [31:0] sequence_no;
+  bit mark_eoe_on_last;
   int unsigned idle_after_each;
 
   function new(string name = "opq_axis_event_sequence");
@@ -14,6 +15,7 @@ class opq_axis_event_sequence extends uvm_sequence #(opq_axis_pkg::opq_axis_item
     word_count = 8;
     data_base = 32'hd00d_0000;
     sequence_no = 32'd1;
+    mark_eoe_on_last = 1'b1;
     idle_after_each = 0;
   endfunction
 
@@ -24,7 +26,7 @@ class opq_axis_event_sequence extends uvm_sequence #(opq_axis_pkg::opq_axis_item
       item.data = data_base + idx;
       item.datak = 4'h0;
       item.sop = (idx == 0);
-      item.eoe = (idx + 1 == word_count);
+      item.eoe = mark_eoe_on_last && (idx + 1 == word_count);
       item.lane = 4'h0;
       item.hit_id = idx + 1;
       item.source_ts = idx + 1;
@@ -41,6 +43,8 @@ class job_single_segment_sequence extends uvm_sequence #(job_pkg::job_item);
 
   bit [63:0] seg0_addr;
   bit [63:0] seg0_span;
+  bit [63:0] seg1_addr;
+  bit [63:0] seg1_span;
   bit [15:0] sqe_id;
   bit [15:0] opcode;
 
@@ -48,6 +52,8 @@ class job_single_segment_sequence extends uvm_sequence #(job_pkg::job_item);
     super.new(name);
     seg0_addr = 64'h0000_0000_0010_0000;
     seg0_span = 64'h0000_0000_0000_1000;
+    seg1_addr = 64'h0000_0000_0000_0000;
+    seg1_span = 64'h0000_0000_0000_0000;
     sqe_id = 16'h00b2;
     opcode = 16'h0001;
   endfunction
@@ -57,8 +63,8 @@ class job_single_segment_sequence extends uvm_sequence #(job_pkg::job_item);
     item = job_pkg::job_item::type_id::create("single_segment_job");
     item.seg0_addr = seg0_addr;
     item.seg0_span = seg0_span;
-    item.seg1_addr = 64'h0;
-    item.seg1_span = 64'h0;
+    item.seg1_addr = seg1_addr;
+    item.seg1_span = seg1_span;
     item.sqe_id = sqe_id;
     item.opcode = opcode;
     start_item(item);
@@ -107,4 +113,3 @@ class rdma_dma_error_template_sequence extends opq_axis_event_sequence;
 endclass
 
 `endif
-

@@ -6,12 +6,22 @@ class axi4_write_driver extends uvm_component;
 
   axi4_write_cfg cfg;
   virtual rdma_dma_engine_if vif;
+  int unsigned awready_countdown;
+  int unsigned wready_countdown;
   int unsigned pending_b_countdown;
+  bit aw_waiting;
+  bit w_waiting;
+  bit scheduled_wlast;
   bit pending_b;
 
   function new(string name, uvm_component parent);
     super.new(name, parent);
+    awready_countdown = 0;
+    wready_countdown = 0;
     pending_b_countdown = 0;
+    aw_waiting = 1'b0;
+    w_waiting = 1'b0;
+    scheduled_wlast = 1'b0;
     pending_b = 1'b0;
   endfunction
 
@@ -33,15 +43,57 @@ class axi4_write_driver extends uvm_component;
         vif.m_axi_bvalid <= 1'b0;
         vif.m_axi_bresp <= AXI_RESP_OKAY;
         vif.m_axi_bid <= 4'h0;
+        aw_waiting = 1'b0;
+        w_waiting = 1'b0;
+        scheduled_wlast = 1'b0;
+        awready_countdown = 0;
+        wready_countdown = 0;
         pending_b = 1'b0;
         pending_b_countdown = 0;
         continue;
       end
 
-      vif.m_axi_awready <= (cfg.awready_lag == 0);
-      vif.m_axi_wready <= (cfg.wready_lag == 0);
+      scheduled_wlast = 1'b0;
 
-      if (vif.m_axi_wvalid && vif.m_axi_wready && vif.m_axi_wlast) begin
+      if (vif.m_axi_awvalid && !aw_waiting && !vif.m_axi_awready) begin
+        aw_waiting = 1'b1;
+        awready_countdown = cfg.awready_lag;
+      end
+
+      if (aw_waiting) begin
+        if (awready_countdown == 0) begin
+          vif.m_axi_awready <= 1'b1;
+          if (vif.m_axi_awvalid)
+            aw_waiting = 1'b0;
+        end else begin
+          awready_countdown--;
+          vif.m_axi_awready <= 1'b0;
+        end
+      end else begin
+        vif.m_axi_awready <= 1'b0;
+      end
+
+      if (vif.m_axi_wvalid && !w_waiting && !vif.m_axi_wready) begin
+        w_waiting = 1'b1;
+        wready_countdown = cfg.wready_lag;
+      end
+
+      if (w_waiting) begin
+        if (wready_countdown == 0) begin
+          vif.m_axi_wready <= 1'b1;
+          if (vif.m_axi_wvalid && vif.m_axi_wlast)
+            scheduled_wlast = 1'b1;
+          if (vif.m_axi_wvalid)
+            w_waiting = 1'b0;
+        end else begin
+          wready_countdown--;
+          vif.m_axi_wready <= 1'b0;
+        end
+      end else begin
+        vif.m_axi_wready <= 1'b0;
+      end
+
+      if ((vif.m_axi_wvalid && vif.m_axi_wready && vif.m_axi_wlast) || scheduled_wlast) begin
         pending_b = 1'b1;
         pending_b_countdown = cfg.bvalid_lag;
       end
@@ -64,4 +116,3 @@ class axi4_write_driver extends uvm_component;
 endclass
 
 `endif
-

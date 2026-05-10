@@ -22,7 +22,9 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
   int unsigned dbg1_sample_count;
   int unsigned dbg2_emit_count;
   int unsigned expected_byte_count;
+  int unsigned current_aw_beats_remaining;
   bit saw_eoe;
+  bit allow_non_okay_bresp;
 
   typedef struct packed {
     bit [255:0] data;
@@ -37,9 +39,19 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
     bit [31:0] sequence_no;
   } lineage_t;
 
+  typedef struct packed {
+    bit [63:0] total_bytes;
+    bit [31:0] seg0_bytes;
+    bit [31:0] seg1_bytes;
+    bit [15:0] status_value;
+    bit [15:0] status_mask;
+    bit [15:0] sqe_id;
+  } job_expect_t;
+
   beat_t expected_beats[$];
   lineage_t expected_lineage[$];
   lineage_t observed_dbg2[$];
+  job_expect_t expected_jobs[$];
   bit [255:0] pack_data;
   bit [31:0] pack_strb;
   int unsigned pack_slot;
@@ -71,10 +83,13 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
     dbg1_sample_count = 0;
     dbg2_emit_count = 0;
     expected_byte_count = 0;
+    current_aw_beats_remaining = 0;
     saw_eoe = 1'b0;
+    allow_non_okay_bresp = 1'b0;
     expected_beats.delete();
     expected_lineage.delete();
     observed_dbg2.delete();
+    expected_jobs.delete();
     pack_data = '0;
     pack_strb = '0;
     pack_slot = 0;
@@ -86,12 +101,50 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
     debug_level = dbg;
   endfunction
 
+  function void set_allow_non_okay_bresp(input bit allow_errors);
+    allow_non_okay_bresp = allow_errors;
+  endfunction
+
+  function void expect_job(
+    input bit [63:0] total_bytes,
+    input bit [31:0] seg0_bytes,
+    input bit [31:0] seg1_bytes,
+    input bit [15:0] status_value,
+    input bit [15:0] status_mask,
+    input bit [15:0] sqe_id
+  );
+    job_expect_t exp;
+    exp.total_bytes = total_bytes;
+    exp.seg0_bytes = seg0_bytes;
+    exp.seg1_bytes = seg1_bytes;
+    exp.status_value = status_value;
+    exp.status_mask = status_mask;
+    exp.sqe_id = sqe_id;
+    expected_jobs.push_back(exp);
+  endfunction
+
+  function void clear_current_job_model();
+    expected_byte_count = 0;
+    saw_eoe = 1'b0;
+    expected_beats.delete();
+    pack_data = '0;
+    pack_strb = '0;
+    pack_slot = 0;
+    current_aw_beats_remaining = 0;
+  endfunction
+
   function lineage_t canonical_lineage(input opq_axis_pkg::opq_axis_item item);
     lineage_t lin;
     lin.lane = (debug_level >= 2) ? item.lane : 4'h0;
     lin.hit_id = (debug_level >= 2 && item.hit_id != 32'h0) ? item.hit_id : (opq_count + 1);
     lin.source_ts = (debug_level >= 2 && item.source_ts != 64'h0) ? item.source_ts : (opq_count + 1);
-    lin.sequence_no = (debug_level >= 2 && item.sequence_no != 32'h0) ? item.sequence_no : 32'd1;
+    if (debug_level >= 2 && item.sequence_no != 32'h0) begin
+      lin.sequence_no = item.sequence_no;
+    end else if (item.data[31:24] == 8'h00 && item.data[23:8] != 16'h0000) begin
+      lin.sequence_no = {16'h0000, item.data[23:8]};
+    end else begin
+      lin.sequence_no = 32'd1;
+    end
     return lin;
   endfunction
 
@@ -130,19 +183,35 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
 
   function void write_axi(axi4_write_pkg::axi4_write_item item);
     beat_t exp;
+    int unsigned beats_before_w;
+    bit expected_last;
     if (item.is_aw) begin
       aw_count++;
-      if (item.len != 8'h00)
-        note_mismatch($sformatf("AWLEN mismatch got=%0d expected=0", item.len));
+      if (current_aw_beats_remaining != 0)
+        note_mismatch("new AW observed before previous W burst completed");
+      current_aw_beats_remaining = item.len + 1;
+      if (item.len > 8'd15)
+        note_mismatch($sformatf("AWLEN exceeds MAX_BURST cap: %0d", item.len));
       if (item.size != 3'd5)
         note_mismatch($sformatf("AWSIZE mismatch got=%0d expected=5", item.size));
       if (item.burst != 2'b01)
         note_mismatch($sformatf("AWBURST mismatch got=%0d expected=1", item.burst));
       if (item.addr[4:0] != 5'h00)
         note_mismatch($sformatf("AWADDR not 32B aligned: 0x%016h", item.addr));
+      if ((int'(item.addr[11:0]) + ((int'(item.len) + 1) * RDMA_DMA_BYTES)) > 4096)
+        note_mismatch($sformatf("AW burst crosses 4KB page addr=0x%016h len=%0d", item.addr, item.len));
     end
     if (item.is_w) begin
       w_count++;
+      beats_before_w = current_aw_beats_remaining;
+      if (beats_before_w == 0) begin
+        note_mismatch("W beat observed without an active AW burst");
+      end else begin
+        expected_last = (beats_before_w == 1);
+        current_aw_beats_remaining = beats_before_w - 1;
+        if (item.last !== expected_last)
+          note_mismatch($sformatf("WLAST mismatch got=%0d expected=%0d", item.last, expected_last));
+      end
       if (expected_beats.size() == 0) begin
         note_mismatch("W beat observed with empty expected beat queue");
       end else begin
@@ -152,29 +221,47 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
             "WDATA mismatch got=0x%064h expected=0x%064h", item.data, exp.data));
         if (item.strb !== exp.strb)
           note_mismatch($sformatf("WSTRB mismatch got=0x%08h expected=0x%08h", item.strb, exp.strb));
-        if (!item.last)
-          note_mismatch("WLAST was not asserted on single-beat smoke burst");
       end
     end
     if (item.is_b) begin
       b_count++;
-      if (item.resp != axi4_write_pkg::AXI_RESP_OKAY)
-        note_mismatch($sformatf("BRESP non-OKAY in smoke: %0d", item.resp));
+      if (item.resp != axi4_write_pkg::AXI_RESP_OKAY && !allow_non_okay_bresp)
+        note_mismatch($sformatf("BRESP non-OKAY when not expected: %0d", item.resp));
     end
   endfunction
 
   function void write_job(job_pkg::job_item item);
+    job_expect_t exp;
     job_done_count++;
-    if (item.bytes_written_total != expected_byte_count)
-      note_mismatch($sformatf("job bytes mismatch got=%0d expected=%0d",
-                              item.bytes_written_total, expected_byte_count));
-    if (item.seg0_bytes_written != expected_byte_count)
-      note_mismatch($sformatf("seg0 bytes mismatch got=%0d expected=%0d",
-                              item.seg0_bytes_written, expected_byte_count));
-    if (!item.status[RDMA_DMA_ST_SEG0_ONLY])
-      note_mismatch("SEG0_ONLY status bit not set for single-segment smoke job");
-    if (saw_eoe && !item.status[RDMA_DMA_ST_EOE])
-      note_mismatch("EOE status bit not set after OPQ tlast");
+    if (expected_jobs.size() != 0) begin
+      exp = expected_jobs.pop_front();
+      if (item.bytes_written_total != exp.total_bytes)
+        note_mismatch($sformatf("job bytes mismatch got=%0d expected=%0d",
+                                item.bytes_written_total, exp.total_bytes));
+      if (item.seg0_bytes_written != exp.seg0_bytes)
+        note_mismatch($sformatf("seg0 bytes mismatch got=%0d expected=%0d",
+                                item.seg0_bytes_written, exp.seg0_bytes));
+      if (item.seg1_bytes_written != exp.seg1_bytes)
+        note_mismatch($sformatf("seg1 bytes mismatch got=%0d expected=%0d",
+                                item.seg1_bytes_written, exp.seg1_bytes));
+      if ((item.status & exp.status_mask) !== (exp.status_value & exp.status_mask))
+        note_mismatch($sformatf("status mismatch got=0x%04h expected(masked)=0x%04h mask=0x%04h",
+                                item.status, exp.status_value, exp.status_mask));
+      if (item.sqe_id_echo !== exp.sqe_id)
+        note_mismatch($sformatf("sqe_id_echo=0x%04h expected=0x%04h", item.sqe_id_echo, exp.sqe_id));
+    end else begin
+      if (item.bytes_written_total != expected_byte_count)
+        note_mismatch($sformatf("job bytes mismatch got=%0d expected=%0d",
+                                item.bytes_written_total, expected_byte_count));
+      if (item.seg0_bytes_written != expected_byte_count)
+        note_mismatch($sformatf("seg0 bytes mismatch got=%0d expected=%0d",
+                                item.seg0_bytes_written, expected_byte_count));
+      if (!item.status[RDMA_DMA_ST_SEG0_ONLY])
+        note_mismatch("SEG0_ONLY status bit not set for single-segment smoke job");
+      if (saw_eoe && !item.status[RDMA_DMA_ST_EOE])
+        note_mismatch("EOE status bit not set after OPQ tlast");
+    end
+    clear_current_job_model();
   endfunction
 
   function void write_dbg1(dbg1_taps_item item);
@@ -209,6 +296,10 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
       note_mismatch($sformatf("expected beat queue residual=%0d", expected_beats.size()));
     if (pack_slot != 0)
       note_mismatch($sformatf("partial packer residual slot=%0d", pack_slot));
+    if (current_aw_beats_remaining != 0)
+      note_mismatch($sformatf("active AW burst residual beats=%0d", current_aw_beats_remaining));
+    if (expected_jobs.size() != 0)
+      note_mismatch($sformatf("expected job queue residual=%0d", expected_jobs.size()));
     if (debug_level >= 2 && dbg2_emit_count != expected_lineage.size())
       note_mismatch($sformatf("DEBUG=2 lineage residual got=%0d expected=%0d",
                               dbg2_emit_count, expected_lineage.size()));

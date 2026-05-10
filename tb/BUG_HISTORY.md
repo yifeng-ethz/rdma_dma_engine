@@ -41,8 +41,88 @@ Historical formal note:
 |---|---|---|---|---|---|---|---|
 | [BUG-000-H](#bug-000-h-bug-history-seeded-empty-at-dv-bring-up) | H | non-datapath-refactor | directed-only (DV bring-up bookkeeping) | fixed | DV bring-up | `pending` | BUG_HISTORY.md seeded empty at DV bring-up so the ledger lints clean before any real RTL/harness bug surfaces. |
 | [BUG-001-R](#bug-001-r-packer-word-order-reverses-dv-plan-msb-first-contract) | H | soft error | common (single full DMA word) | fixed | B002 dual-debug smoke | `3d2ba7f` | TB scoreboard and docs expected MSB-first while RTL/prototype pack LSB-first. |
+| [BUG-002-R](#bug-002-r-aw-burst-metadata-could-drift-and-underfill-streaming-bursts) | R | soft error | common (streaming DMA with AW backpressure or max-burst checks) | fixed | Phase B B015/B052 expansion | `pending` | AW fields were not fully transaction-latched and the writer latched bursts before the FIFO could reach max-burst depth. |
+| [BUG-003-H](#bug-003-h-dual-debug-lineage-scorecards-used-different-sequence-number-canonicals) | H | non-datapath-refactor | directed-only (dual-debug scorecard comparison for generated cases) | fixed | Phase B B013-B016 cross-validate | `pending` | DEBUG_LEVEL=1 scorecards synthesized sequence_no=1 while DEBUG_LEVEL=2 carried the generated case SQE-derived sequence number. |
 
 ## 2026-05-10
+
+### BUG-003-H: Dual-debug lineage scorecards used different sequence-number canonicals
+- First seen in:
+  - `make -C tb/uvm cross_validate CASES="B001 ... B016"` on
+    `2026-05-10`
+  - generated Phase B cases `B013` through `B016`
+- Symptom:
+  - `DEBUG_LEVEL=1` and `DEBUG_LEVEL=2` simulations both passed with
+    `summary.mismatches=0`
+  - `scripts/cross_validate_dbg.py` rejected the scorecards because the first
+    three lineage fields matched, but `sequence_no` was `1` in DEBUG_LEVEL=1
+    and the generated case SQE-derived value in DEBUG_LEVEL=2
+- Root cause:
+  - DEBUG_LEVEL=1 intentionally ties off the DEBUG2 sideband wires
+  - the scoreboard canonicalized missing DEBUG2 metadata by setting
+    `sequence_no=1`, which was only valid for the original B002 smoke
+  - generated Phase B OPQ data encodes the SQE-derived sequence number in the
+    payload, so the DEBUG_LEVEL=1 functional lineage had enough information to
+    reconstruct the same canonical sequence number as DEBUG_LEVEL=2
+- Fix status:
+  - state: fixed; first Phase B transaction batch cross-validates cleanly
+  - mechanism: `tb/uvm/scoreboard.sv` now reconstructs the generated-case
+    sequence number from the OPQ payload when DEBUG2 sidebands are absent and
+    falls back to `1` for legacy smoke payloads
+  - before_fix_outcome: cross-validation failed for `B013` through `B016`
+    with per-entry `sequence_no` differences
+  - after_fix_outcome: `make -C tb/uvm cross_validate CASES="B013 B014 B015
+    B016"` reports zero residual mismatch across all four cases
+  - potential_hazard: closed for generated Phase B cases; future payload
+    encodings must keep a deterministic DEBUG_LEVEL=1 canonical source if the
+    dual-debug comparator is expected to compare full lineage tuples
+  - Claude Opus 4.7 xhigh review decision: pending / not run
+- Runtime / coverage context:
+  - after-fix `B013` observes `opq=8 aw=1 w=1 b=1 job_done=1`
+  - after-fix `B015` observes `opq=128 aw=1 w=16 b=1 job_done=1`
+  - all cited runs saved per-debug UCDBs under `tb/uvm/cov_after/dbg{1,2}/`
+- Commit:
+  - `pending`
+
+### BUG-002-R: AW burst metadata could drift and underfill streaming bursts
+- First seen in:
+  - Phase B burst and stall expansion on `2026-05-10`
+  - `B015` / `B042` max-burst intent and `B052` AW-stall intent
+- Symptom:
+  - with AW backpressure, `m_axi_awlen` was derived from live FIFO level while
+    `m_axi_awvalid` could remain asserted
+  - under streaming input, the writer latched an AW as soon as FIFO level was
+    non-zero, so max-burst scenarios could produce short bursts instead of
+    the intended `awlen==15`
+- Root cause:
+  - `rdma_dma_writer.sv` did not fully latch the chosen burst length before
+    asserting AW valid
+  - the AW latch condition used the first available FIFO beat instead of
+    waiting for a full burst, segment-tail condition, or EOE-tail condition
+- Fix status:
+  - state: fixed; burst and AW-stall Phase B cases now have stable AW metadata
+    and can produce full bursts
+  - mechanism: the writer now latches `beats_in_burst` and
+    `beats_remaining` before AW issue, drives `m_axi_awlen` from that latched
+    value, and only latches a new AW when the FIFO can provide a full burst,
+    the segment tail is available, or EOE has made a short tail legal
+  - before_fix_outcome: max-burst generated cases underfilled bursts and the
+    AW hold assertion could fail when FIFO level changed during an AW stall
+  - after_fix_outcome: `B015` reports `opq=128 aw=1 w=16 b=1 job_done=1`;
+    `B016` reports `opq=256 aw=2 w=32 b=2 job_done=1`; both pass under
+    DEBUG_LEVEL=1 and DEBUG_LEVEL=2 with zero mismatches
+  - potential_hazard: closed for the RTL contract now covered by the Phase B
+    burst and AW-stall cases; long PROF runs still need full regression
+    coverage
+  - Claude Opus 4.7 xhigh review decision: pending / not run
+- Runtime / coverage context:
+  - the verifying runs save per-case UCDBs at
+    `tb/uvm/cov_after/dbg{1,2}/B015_dbg{1,2}.ucdb` and
+    `B016_dbg{1,2}.ucdb`
+  - the dual-debug cross-check for `B013 B014 B015 B016` reports zero
+    residual mismatch after the fix
+- Commit:
+  - `pending`
 
 ### BUG-001-R: Packer word order reverses DV plan MSB-first contract
 - First seen in:

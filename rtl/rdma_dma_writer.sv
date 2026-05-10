@@ -127,6 +127,7 @@ module rdma_dma_writer #(
         logic [63:0]       first_event_ts;
         logic [63:0]       last_event_ts;
         logic              eoe_seen;
+        logic              aw_latched;
         logic [7:0]        beats_in_burst;
         logic [7:0]        beats_remaining;
         logic [3:0]        last_bid;
@@ -151,6 +152,7 @@ module rdma_dma_writer #(
         first_event_ts  : 64'h0000_0000_0000_0000,
         last_event_ts   : 64'h0000_0000_0000_0000,
         eoe_seen        : 1'b0,
+        aw_latched      : 1'b0,
         beats_in_burst  : 8'h00,
         beats_remaining : 8'h00,
         last_bid        : 4'h0
@@ -161,6 +163,7 @@ module rdma_dma_writer #(
     logic       align_error;
     logic [7:0] aw_beats;
     logic       aw_can_issue;
+    logic       aw_latch_ready;
     logic       aw_fire;
     logic       w_fire;
     logic       b_fire;
@@ -217,7 +220,13 @@ module rdma_dma_writer #(
          ((job_seg1_addr[11:0] != 12'h000) || (job_seg1_span[11:0] != 12'h000)));
 
     assign aw_beats               = choose_aw_beats(fifo_level, writer.bytes_left_seg);
-    assign aw_can_issue           = (writer.state == WR_ISSUING_AW) && (aw_beats != 8'h00);
+    assign aw_can_issue           = (writer.state == WR_ISSUING_AW) && writer.aw_latched;
+    assign aw_latch_ready         = (writer.state == WR_ISSUING_AW) &&
+                                    (aw_beats != 8'h00) &&
+                                    (writer.eoe_seen ||
+                                     (fifo_level >= MAX_BURST_LEVEL_CONST) ||
+                                     ((64'(fifo_level) << AXI_SIZE_CONST) >=
+                                      writer.bytes_left_seg));
     assign aw_fire                = aw_can_issue && m_axi_awready;
     assign w_fire                 = (writer.state == WR_WRITING) && fifo_valid && m_axi_wready;
     assign b_fire                 = (writer.state == WR_WAITING_B) && m_axi_bvalid;
@@ -229,7 +238,7 @@ module rdma_dma_writer #(
 
     assign m_axi_awid             = 4'h0;
     assign m_axi_awaddr           = writer.cur_addr;
-    assign m_axi_awlen            = aw_beats - 8'd1;
+    assign m_axi_awlen            = writer.beats_in_burst - 8'd1;
     assign m_axi_awsize           = AXI_SIZE_CONST[2:0];
     assign m_axi_awburst          = AXI_BURST_INCR_CONST;
     assign m_axi_awvalid          = aw_can_issue;
@@ -308,6 +317,9 @@ module rdma_dma_writer #(
                         writer.cur_addr       <= writer.seg1_addr;
                         writer.bytes_left_seg <= writer.seg1_span;
                     end
+                    writer.aw_latched      <= 1'b0;
+                    writer.beats_in_burst  <= 8'h00;
+                    writer.beats_remaining <= 8'h00;
                     writer.state <= WR_ISSUING_AW;
                 end
 
@@ -325,9 +337,12 @@ module rdma_dma_writer #(
                             writer.status[STATUS_FULL_CONST] <= 1'b1;
                             writer.state                     <= WR_REPORTING;
                         end
-                    end else if (aw_fire) begin
+                    end else if (!writer.aw_latched && aw_latch_ready) begin
+                        writer.aw_latched      <= 1'b1;
                         writer.beats_in_burst  <= aw_beats;
                         writer.beats_remaining <= aw_beats;
+                    end else if (aw_fire) begin
+                        writer.aw_latched <= 1'b0;
                         writer.state           <= WR_WRITING;
                     end
                 end
@@ -391,6 +406,9 @@ module rdma_dma_writer #(
                                 writer.state                     <= WR_REPORTING;
                             end
                         end else begin
+                            writer.aw_latched      <= 1'b0;
+                            writer.beats_in_burst  <= 8'h00;
+                            writer.beats_remaining <= 8'h00;
                             writer.state <= WR_ISSUING_AW;
                         end
                     end
