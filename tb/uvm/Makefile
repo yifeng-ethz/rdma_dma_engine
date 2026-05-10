@@ -31,6 +31,9 @@ TOP := rdma_dma_engine_tb_top
 TEST ?= rdma_dma_engine_base_test
 CASE_ID ?= BASE
 COV_CODE ?= sbecft
+SMOKE_CASES := \
+  test_b001_reset_idle:B001 \
+  test_b002_single_job_hit_only_eoe:B002
 
 RTL_TOP := $(shell cd "$(IP_DIR)" && git ls-files rtl/rdma_dma_engine.sv)
 ifeq ($(strip $(RTL_TOP)),)
@@ -92,10 +95,16 @@ run_one: compile
 	  -do "coverage save -onexit $(TB_DIR)/cov_after/dbg$(DEBUG_LEVEL)/$(CASE_ID).ucdb; run -all; quit -f"
 
 dbg1:
-	$(MAKE) DEBUG_LEVEL=1 run_one
+	@for entry in $(SMOKE_CASES); do \
+	  test_name=$${entry%%:*}; case_id=$${entry##*:}; \
+	  $(MAKE) DEBUG_LEVEL=1 TEST=$$test_name CASE_ID=$$case_id run_one || exit $$?; \
+	done
 
 dbg2:
-	$(MAKE) DEBUG_LEVEL=2 run_one
+	@for entry in $(SMOKE_CASES); do \
+	  test_name=$${entry%%:*}; case_id=$${entry##*:}; \
+	  $(MAKE) DEBUG_LEVEL=2 TEST=$$test_name CASE_ID=$$case_id run_one || exit $$?; \
+	done
 
 regress:
 	$(MAKE) -j2 dbg1 dbg2

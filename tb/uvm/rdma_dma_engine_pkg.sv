@@ -78,6 +78,7 @@ package rdma_dma_engine_pkg;
   `include "dbg2_lineage_monitor.sv"
   `include "scoreboard.sv"
   `include "coverage.sv"
+  `include "sequences/rdma_dma_engine_sequences.sv"
 
   class rdma_dma_engine_env extends uvm_env;
     `uvm_component_utils(rdma_dma_engine_env)
@@ -186,6 +187,15 @@ package rdma_dma_engine_pkg;
       repeat (cycles) @(posedge vif.clk);
     endtask
 
+    task wait_for_done(input int unsigned timeout_cycles = 1000);
+      for (int unsigned cycle = 0; cycle < timeout_cycles; cycle++) begin
+        @(posedge vif.clk);
+        if (vif.job_done)
+          return;
+      end
+      `uvm_fatal("TIMEOUT", $sformatf("%s timed out waiting for job_done", case_id))
+    endtask
+
     virtual task run_case();
       wait_cycles(8);
     endtask
@@ -199,6 +209,9 @@ package rdma_dma_engine_pkg;
       phase.drop_objection(this);
     endtask
   endclass
+
+  `include "tests/test_b001_reset_idle.sv"
+  `include "tests/test_b002_single_job_hit_only_eoe.sv"
 endpackage
 
 `endif

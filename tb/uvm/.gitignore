@@ -5,7 +5,7 @@ REPORT/
 *.ucdb
 *.wlf
 transcript
+tr_db.log
 vsim_stacktrace.vstf
 __pycache__/
 *.pyc
-
