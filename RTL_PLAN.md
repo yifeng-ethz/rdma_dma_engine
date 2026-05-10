@@ -227,9 +227,10 @@ the host interface flat (no per-IP BAR aperture juggling).
 ## 8. Synthesis sign-off
 
 Standalone Quartus project at `syn/quartus/rdma_dma_engine_standalone.qsf`.
-Sign-off corner: 1.1× target frequency. Top-level entity is
-`rdma_dma_engine`. AVMM master tied to a dummy slave for the standalone
-fitter.
+Sign-off corner: 1.1× target frequency. Standalone top-level entity is
+`rdma_dma_engine_standalone_top`, a thin wrapper around `rdma_dma_engine`
+with virtual-pin boundaries so the fitter preserves the AXI4/AXIS/job
+interfaces without adding datapath logic.
 
 Default target: 250 MHz (SWB datapath clock). Sign-off at 275 MHz.
 
@@ -245,32 +246,30 @@ Submodule contributions:
 
 | Submodule | ALMs | M20K | DSP | Justification |
 |---|---:|---:|---:|---|
-| `rdma_dma_packer.sv` | ~120 | 0 | 0 | 256-b accumulator (8 × 32-b slots), 3-bit slot index, EOE/last_in_event flop, `bytes_in_word` adder. ~256 flops + a small adder cone. |
-| `rdma_dma_data_fifo.sv` | ~60 | 4 | 0 | 256-b SCFIFO depth 256 + 8-bit sideband (`last_in_event`, `bytes_in_word[5:0]`, spare). 256×264 b ≈ 67 kbit ≈ 4 × M20K (each 20 kbit, 4 deep × 264 wide cascade). Read/write pointer + occupancy logic ~60 ALMs. |
-| `rdma_dma_writer.sv` | ~250 | 0 | 0 | 6-state FSM, two 64-bit segment-base registers, two 64-bit `bytes_left_seg` counters, 8-bit `awlen` sizer, `min(fifo_level, MAX_BURST_BEATS, beats_left_in_seg)` comparator (small), AW/W/B in-flight counters, byte-strobe generator. Plus first/last-event TS capture (2 × 64 b = 128 flops). |
-| `rdma_dma_engine.sv` | ~70 | 0 | 0 | Counter aggregation (`cnt_input_w`, `cnt_bytes_written`, `cnt_halt`, `cnt_eoe_observed` — four 32-b counters = 128 flops + adders), DEBUG_LEVEL=1 status taps, sidecar tie-off cone at DEBUG=0. |
-| **Sum (pre-fit)** | **~500** | **4** | **0** | |
+| `rdma_dma_packer.sv` | ~220 | 0 | 0 | 256-b accumulator, 8-slot DEBUG2 mask tie-off, byte-count sideband, EOE timestamp capture, halt/drop detection, and cycle counter. |
+| `rdma_dma_data_fifo.sv` | ~140 | 7 | 0 | 256-entry FIFO stores 256-bit payload plus `last_in_event`, `bytes_in_word[5:0]`, and 64-bit EOE timestamp: 256 x 327 b before width packing. |
+| `rdma_dma_writer.sv` | ~600 | 0 | 0 | 6-state AXI4 writer, two 64-bit segment descriptors, current address/bytes-left arithmetic, burst min logic, byte-strobe generator, per-segment counters, and status/event reporting. |
+| `rdma_dma_engine.sv` | ~140 | 0 | 0 | Four sideband counters, clear-counters muxing, DEBUG tap muxing, and top-level valid/flush glue. |
+| **Sum (pre-fit)** | **~1100** | **7** | **0** | |
 
-Add ~10 % budget for routing/control glue: **~550 ALMs**.
-
-`ALM_estimate = 550`
-`M20K_estimate = 4`
+`ALM_estimate = 1100`
+`M20K_estimate = 7`
 `DSP_estimate = 0`
 
 Acceptance band:
 
 | Metric | Lower (-20 %) | Upper (+50 %) |
 |---|---:|---:|
-| ALMs  | 440 | 825 |
-| M20K  | 3   | 6   |
+| ALMs  | 880 | 1650 |
+| M20K  | 6   | 11   |
 | DSP   | 0   | 0   |
 
 Notes:
 - DSP_estimate = 0: all arithmetic in this IP is small adders /
   comparators, no multiplies. Quartus must not infer DSP blocks.
-- M20K_estimate = 4 assumes the inferred SCFIFO. If Phase 2 swaps to
-  `altera_avalon_st_fifo`, the count may drop to 3 (the IP catalog FIFO
-  packs the sideband more tightly); update this section accordingly.
+- M20K_estimate = 7 assumes an inferred M20K FIFO and includes width-packing
+  overhead for the 327-bit storage word. If Phase 2 swaps to an IP-catalog
+  FIFO, update this section from a fresh standalone synthesis result.
 - The DEBUG=1 build adds ~30 observation flops (per `doc/QUEUE_MATH.md`
   §6). DEBUG=2 build is sim-only and does not count for synthesis.
 

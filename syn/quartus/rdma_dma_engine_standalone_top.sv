@@ -1,0 +1,150 @@
+// File name: rdma_dma_engine_standalone_top.sv
+// Author  : Yifeng Wang (yifenwan@phys.ethz.ch)
+// Version : 26.1.0
+// Date    : 20260510
+// Change  : standalone Quartus wrapper for rdma_dma_engine sign-off
+
+`default_nettype none
+
+module rdma_dma_engine_standalone_top #(
+    parameter int unsigned DMA_DATA_W  = 256,
+    parameter int unsigned DBG2_META_W = 136
+) (
+    input  wire logic                       clk,
+    input  wire logic                       reset_n,
+
+    input  wire logic [35:0]                s_axis_opq_tdata,
+    input  wire logic                       s_axis_opq_tvalid,
+    output logic                            s_axis_opq_tready,
+    input  wire logic                       s_axis_opq_tlast,
+    input  wire logic [1:0]                 s_axis_opq_tuser,
+
+    input  wire logic                       job_req,
+    input  wire logic [63:0]                job_seg0_addr,
+    input  wire logic [63:0]                job_seg0_span,
+    input  wire logic [63:0]                job_seg1_addr,
+    input  wire logic [63:0]                job_seg1_span,
+    input  wire logic [15:0]                job_sqe_id,
+    input  wire logic [15:0]                job_opcode,
+    output logic                            job_done,
+    output logic [63:0]                     job_bytes_written_total,
+    output logic [31:0]                     job_seg0_bytes_written,
+    output logic [31:0]                     job_seg1_bytes_written,
+    output logic [15:0]                     job_status,
+    output logic [15:0]                     job_sqe_id_echo,
+    output logic [31:0]                     job_event_count,
+    output logic [63:0]                     job_first_event_ts,
+    output logic [63:0]                     job_last_event_ts,
+
+    output logic [3:0]                      m_axi_awid,
+    output logic [63:0]                     m_axi_awaddr,
+    output logic [7:0]                      m_axi_awlen,
+    output logic [2:0]                      m_axi_awsize,
+    output logic [1:0]                      m_axi_awburst,
+    output logic                            m_axi_awvalid,
+    input  wire logic                       m_axi_awready,
+    output logic [DMA_DATA_W-1:0]           m_axi_wdata,
+    output logic [DMA_DATA_W/8-1:0]         m_axi_wstrb,
+    output logic                            m_axi_wlast,
+    output logic                            m_axi_wvalid,
+    input  wire logic                       m_axi_wready,
+    input  wire logic [3:0]                 m_axi_bid,
+    input  wire logic [1:0]                 m_axi_bresp,
+    input  wire logic                       m_axi_bvalid,
+    output logic                            m_axi_bready,
+
+    input  wire logic                       clear_counters,
+    output logic [31:0]                     cnt_input_w,
+    output logic [31:0]                     cnt_bytes_written,
+    output logic [31:0]                     cnt_halt,
+    output logic [31:0]                     cnt_eoe_observed,
+
+    output logic [8:0]                      dbg1_fifo_level,
+    output logic                            dbg1_fifo_almost_full,
+    output logic [3:0]                      dbg1_packer_slot,
+    output logic                            dbg1_packer_pending_eoe,
+    output logic [3:0]                      dbg1_aw_inflight,
+    output logic [7:0]                      dbg1_w_beats_remaining,
+    output logic [3:0]                      dbg1_b_outstanding,
+    output logic                            dbg1_halt_pulse,
+    output logic [3:0]                      dbg1_writer_state,
+
+    input  wire logic                       dbg2_meta_valid,
+    input  wire logic [DBG2_META_W-1:0]     dbg2_meta,
+    output logic                            dbg2_writer_meta_valid,
+    output logic [8*DBG2_META_W-1:0]        dbg2_writer_meta,
+    output logic [7:0]                      dbg2_writer_valid_mask
+);
+
+    rdma_dma_engine #(
+        .DMA_DATA_W                (DMA_DATA_W),
+        .MAX_BURST_BEATS           (16),
+        .SEG_QUANTUM_BYTES         (4096),
+        .FIFO_DEPTH                (256),
+        .FIFO_ALMOST_FULL_THRESHOLD(192),
+        .DBG2_META_W               (DBG2_META_W),
+        .DEBUG_LEVEL               (0)
+    ) dut_i (
+        .clk                    (clk),
+        .reset_n                (reset_n),
+        .s_axis_opq_tdata       (s_axis_opq_tdata),
+        .s_axis_opq_tvalid      (s_axis_opq_tvalid),
+        .s_axis_opq_tready      (s_axis_opq_tready),
+        .s_axis_opq_tlast       (s_axis_opq_tlast),
+        .s_axis_opq_tuser       (s_axis_opq_tuser),
+        .job_req                (job_req),
+        .job_seg0_addr          (job_seg0_addr),
+        .job_seg0_span          (job_seg0_span),
+        .job_seg1_addr          (job_seg1_addr),
+        .job_seg1_span          (job_seg1_span),
+        .job_sqe_id             (job_sqe_id),
+        .job_opcode             (job_opcode),
+        .job_done               (job_done),
+        .job_bytes_written_total(job_bytes_written_total),
+        .job_seg0_bytes_written (job_seg0_bytes_written),
+        .job_seg1_bytes_written (job_seg1_bytes_written),
+        .job_status             (job_status),
+        .job_sqe_id_echo        (job_sqe_id_echo),
+        .job_event_count        (job_event_count),
+        .job_first_event_ts     (job_first_event_ts),
+        .job_last_event_ts      (job_last_event_ts),
+        .m_axi_awid             (m_axi_awid),
+        .m_axi_awaddr           (m_axi_awaddr),
+        .m_axi_awlen            (m_axi_awlen),
+        .m_axi_awsize           (m_axi_awsize),
+        .m_axi_awburst          (m_axi_awburst),
+        .m_axi_awvalid          (m_axi_awvalid),
+        .m_axi_awready          (m_axi_awready),
+        .m_axi_wdata            (m_axi_wdata),
+        .m_axi_wstrb            (m_axi_wstrb),
+        .m_axi_wlast            (m_axi_wlast),
+        .m_axi_wvalid           (m_axi_wvalid),
+        .m_axi_wready           (m_axi_wready),
+        .m_axi_bid              (m_axi_bid),
+        .m_axi_bresp            (m_axi_bresp),
+        .m_axi_bvalid           (m_axi_bvalid),
+        .m_axi_bready           (m_axi_bready),
+        .clear_counters         (clear_counters),
+        .cnt_input_w            (cnt_input_w),
+        .cnt_bytes_written      (cnt_bytes_written),
+        .cnt_halt               (cnt_halt),
+        .cnt_eoe_observed       (cnt_eoe_observed),
+        .dbg1_fifo_level        (dbg1_fifo_level),
+        .dbg1_fifo_almost_full  (dbg1_fifo_almost_full),
+        .dbg1_packer_slot       (dbg1_packer_slot),
+        .dbg1_packer_pending_eoe(dbg1_packer_pending_eoe),
+        .dbg1_aw_inflight       (dbg1_aw_inflight),
+        .dbg1_w_beats_remaining(dbg1_w_beats_remaining),
+        .dbg1_b_outstanding     (dbg1_b_outstanding),
+        .dbg1_halt_pulse        (dbg1_halt_pulse),
+        .dbg1_writer_state      (dbg1_writer_state),
+        .dbg2_meta_valid        (dbg2_meta_valid),
+        .dbg2_meta              (dbg2_meta),
+        .dbg2_writer_meta_valid (dbg2_writer_meta_valid),
+        .dbg2_writer_meta       (dbg2_writer_meta),
+        .dbg2_writer_valid_mask (dbg2_writer_valid_mask)
+    );
+
+endmodule
+
+`default_nettype wire
