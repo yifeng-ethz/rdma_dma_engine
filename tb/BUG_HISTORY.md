@@ -49,7 +49,7 @@ Historical formal note:
 | [BUG-007-R](#bug-007-r-eoe-reporting-could-close-before-later-event-beats-drained) | R | soft error | occasional (multi-event EOE jobs under host B-channel latency) | fixed | Phase B B066 | `c884e45` | The writer stopped accepting later event beats and reported after the first EOE/B response instead of draining all accepted multi-event data. |
 | [BUG-008-H](#bug-008-h-zero-latency-axi-completer-stretched-w-bursts) | H | non-datapath-refactor | directed-only (queue-math zero-latency throughput smoke) | fixed | Phase B B117 | `5119579` | The AXI completer deasserted WREADY between zero-lag W beats, stretching one 16-beat burst to 31 cycles. |
 | [BUG-009-H](#bug-009-h-halt-helper-restarted-debug2-lineage-inside-later-jobs) | H | non-datapath-refactor | directed-only (multi-job cross-validation after halt injection) | fixed | Phase B B125 | `26333c0` | The halt helper restarted DEBUG2 hit/source IDs instead of carrying the global OPQ lineage across a later job. |
-| [BUG-010-R](#bug-010-r-axi-aw-bursts-could-cross-4kb-pages-under-bvalid-latency) | R | soft error | occasional (legal long DMA spans with host B-channel latency) | fixed | Phase B P002 | `pending` | Writer burst sizing ignored the remaining bytes before the next 4KB page and could issue AWLEN=15 from 0x...0f00. |
+| [BUG-010-R](#bug-010-r-axi-aw-bursts-could-cross-4kb-pages-under-bvalid-latency) | R | soft error | occasional (legal long DMA spans with host B-channel latency) | fixed | Phase B P002 | `fc55718` | Writer burst sizing ignored the remaining bytes before the next 4KB page and could issue AWLEN=15 from 0x...0f00. |
 
 ## 2026-05-10
 
@@ -89,7 +89,7 @@ Historical formal note:
   - failing logs were captured at `tb/uvm/logs/dbg1/P002.log` and
     `tb/uvm/logs/dbg2/P002.log`
 - Commit:
-  - `pending`
+  - `fc55718`
 
 ### BUG-009-H: Halt helper restarted DEBUG2 lineage inside later jobs
 - First seen in:
