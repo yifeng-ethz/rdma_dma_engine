@@ -172,16 +172,21 @@ module rdma_dma_writer #(
         input logic [FIFO_LEVEL_W-1:0] level,
         input logic [63:0]             bytes_left
     );
-        logic [63:0] choose_v_beats_left;
+        logic [7:0]  choose_v_segment_cap;
         logic [7:0]  choose_v_candidate;
         begin
-            choose_v_beats_left = (bytes_left + DMA_BYTES_CONST - 64'd1) >> AXI_SIZE_CONST;
-            choose_v_candidate  = MAX_BURST_BEATS_CONST;
+            if (bytes_left[63:9] != '0) begin
+                choose_v_segment_cap = MAX_BURST_BEATS_CONST;
+            end else begin
+                choose_v_segment_cap = {4'h0, bytes_left[8:5]};
+            end
+
+            choose_v_candidate = MAX_BURST_BEATS_CONST;
             if (level < MAX_BURST_LEVEL_CONST) begin
                 choose_v_candidate = level[7:0];
             end
-            if (choose_v_beats_left < {56'h00_0000_0000_0000, choose_v_candidate}) begin
-                choose_v_candidate = choose_v_beats_left[7:0];
+            if (choose_v_segment_cap < choose_v_candidate) begin
+                choose_v_candidate = choose_v_segment_cap;
             end
             return choose_v_candidate;
         end

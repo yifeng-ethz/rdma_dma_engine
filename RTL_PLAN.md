@@ -228,9 +228,10 @@ the host interface flat (no per-IP BAR aperture juggling).
 
 Standalone Quartus project at `syn/quartus/rdma_dma_engine_standalone.qsf`.
 Sign-off corner: 1.1× target frequency. Standalone top-level entity is
-`rdma_dma_engine_standalone_top`, a thin wrapper around `rdma_dma_engine`
-with virtual-pin boundaries so the fitter preserves the AXI4/AXIS/job
-interfaces without adding datapath logic.
+`rdma_dma_engine_standalone_top`, a small synthesizable wrapper around
+`rdma_dma_engine` with a deterministic OPQ/job stimulus source, an AXI4
+write completer, and a reduced signature output. This keeps the IP live
+without counting thousands of top-level virtual-pin adapters as IP ALMs.
 
 Default target: 250 MHz (SWB datapath clock). Sign-off at 275 MHz.
 
