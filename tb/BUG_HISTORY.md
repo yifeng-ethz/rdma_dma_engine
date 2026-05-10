@@ -47,8 +47,46 @@ Historical formal note:
 | [BUG-005-H](#bug-005-h-axi-completer-dropped-same-cycle-bvalid-before-clocked-handshake) | H | non-datapath-refactor | directed-only (same-cycle BVALID stress) | fixed | Phase B B059 | `21aca89` | The AXI completer deasserted BVALID before the DUT could sample a same-cycle B-channel handshake. |
 | [BUG-006-R](#bug-006-r-eoe-tail-could-remain-behind-short-final-aw) | R | soft error | common (EOE after full FIFO beats but before a 16-beat burst is available) | fixed | Phase B B063 | `21aca89` | The writer could latch a short final AW before the packer had pushed the EOE partial tail into the FIFO. |
 | [BUG-007-R](#bug-007-r-eoe-reporting-could-close-before-later-event-beats-drained) | R | soft error | occasional (multi-event EOE jobs under host B-channel latency) | fixed | Phase B B066 | `c884e45` | The writer stopped accepting later event beats and reported after the first EOE/B response instead of draining all accepted multi-event data. |
+| [BUG-008-H](#bug-008-h-zero-latency-axi-completer-stretched-w-bursts) | H | non-datapath-refactor | directed-only (queue-math zero-latency throughput smoke) | fixed | Phase B B117 | `pending` | The AXI completer deasserted WREADY between zero-lag W beats, stretching one 16-beat burst to 31 cycles. |
 
 ## 2026-05-10
+
+### BUG-008-H: Zero-latency AXI completer stretched W bursts
+- First seen in:
+  - `make -C tb/uvm -j2 phase_b_dbg1 phase_b_dbg2 REGRESS_CASES="test_b113_phase_b:B113 ... test_b128_phase_b:B128"` on `2026-05-10`
+  - generated Phase B case `B117` under DEBUG_LEVEL=1 and DEBUG_LEVEL=2
+- Symptom:
+  - `B117` completed the data path with `opq=128 aw=1 w=16 b=1 done=1
+    mismatches=0`
+  - the queue-math check still failed because one nominal zero-lag 16-beat W
+    burst took 31 observed cycles instead of 16
+  - DEBUG_LEVEL=2 additionally observed `dbg2=128`, confirming payload lineage
+    was intact and the failure was isolated to the completer timing model
+- Root cause:
+  - `axi4_write_driver.sv` asserted `m_axi_wready` for a zero-lag beat, cleared
+    the internal wait flag after that handshake, and then deasserted WREADY
+    while discovering the next asserted WVALID beat
+  - that made `wready_lag=0` behave as one ready cycle followed by one idle
+    cycle, stretching a legal continuous burst without changing data contents
+- Fix status:
+  - state: fixed; zero-lag W bursts now stay continuously ready while WVALID is
+    asserted
+  - mechanism: the AXI completer bypasses the per-beat countdown path when
+    `wready_lag==0`, drives WREADY directly from WVALID, and leaves the existing
+    nonzero-lag countdown behavior unchanged
+  - before_fix_outcome: B117 failed in both debug lanes with `single-burst W
+    cadence got=31 cycles expected=16`
+  - after_fix_outcome: isolated B117 rerun passed in DEBUG_LEVEL=1 and
+    DEBUG_LEVEL=2 with `opq=128 aw=1 w=16 b=1 done=1 mismatches=0`; the
+    DEBUG_LEVEL=2 lane also observed `dbg2=128`
+  - potential_hazard: closed for the zero-lag W-channel model; nonzero-lag W
+    profiles remain on the pre-existing per-beat countdown path
+  - Claude Opus 4.7 xhigh review decision: pending / not run
+- Runtime / coverage context:
+  - failing logs were captured at `tb/uvm/logs/dbg1/B117.log` and
+    `tb/uvm/logs/dbg2/B117.log`
+- Commit:
+  - `pending`
 
 ### BUG-007-R: EOE reporting could close before later event beats drained
 - First seen in:

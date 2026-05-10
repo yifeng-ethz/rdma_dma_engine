@@ -76,24 +76,32 @@ class axi4_write_driver extends uvm_component;
         vif.m_axi_awready <= 1'b0;
       end
 
-      if (vif.m_axi_wvalid && !w_waiting && !vif.m_axi_wready) begin
-        w_waiting = 1'b1;
-        wready_countdown = cfg.wready_lag;
-      end
+      if (cfg.wready_lag == 0) begin
+        vif.m_axi_wready <= vif.m_axi_wvalid;
+        if (vif.m_axi_wvalid && vif.m_axi_wlast)
+          scheduled_wlast = 1'b1;
+        w_waiting = 1'b0;
+        wready_countdown = 0;
+      end else begin
+        if (vif.m_axi_wvalid && !w_waiting && !vif.m_axi_wready) begin
+          w_waiting = 1'b1;
+          wready_countdown = cfg.wready_lag;
+        end
 
-      if (w_waiting) begin
-        if (wready_countdown == 0) begin
-          vif.m_axi_wready <= 1'b1;
-          if (vif.m_axi_wvalid && vif.m_axi_wlast)
-            scheduled_wlast = 1'b1;
-          if (vif.m_axi_wvalid)
-            w_waiting = 1'b0;
+        if (w_waiting) begin
+          if (wready_countdown == 0) begin
+            vif.m_axi_wready <= 1'b1;
+            if (vif.m_axi_wvalid && vif.m_axi_wlast)
+              scheduled_wlast = 1'b1;
+            if (vif.m_axi_wvalid)
+              w_waiting = 1'b0;
+          end else begin
+            wready_countdown--;
+            vif.m_axi_wready <= 1'b0;
+          end
         end else begin
-          wready_countdown--;
           vif.m_axi_wready <= 1'b0;
         end
-      end else begin
-        vif.m_axi_wready <= 1'b0;
       end
 
       if ((vif.m_axi_wvalid && vif.m_axi_wready && vif.m_axi_wlast) || scheduled_wlast) begin
