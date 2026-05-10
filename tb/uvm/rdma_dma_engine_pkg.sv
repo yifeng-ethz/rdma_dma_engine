@@ -3901,6 +3901,200 @@ package rdma_dma_engine_pkg;
                        1'b0);
     endtask
 
+    task run_error_bresp_recovery_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_error_bresp_case(.tag({tag, "_slverr"}),
+                           .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
+                           .error_index(-1),
+                           .opq_words(64),
+                           .sqe_id(sqe_id),
+                           .sequence_no(sequence_no));
+      run_dma_job(.tag({tag, "_clean"}), .opq_words(16),
+                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .sequence_no(sequence_no + 32'd1),
+                  .timeout_cycles(300000));
+      check_status_bit({tag, "_clean"}, "status[AXI_ERR]", 6, 1'b0);
+      check_status_bit({tag, "_clean"}, "status[EOE]", RDMA_DMA_ST_EOE,
+                       1'b1);
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd2);
+    endtask
+
+    task run_error_reset_mid_job_recovery_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_error_reset_writer_state_case(.tag({tag, "_reset"}),
+                                        .target_state(4'd3),
+                                        .sqe_id(sqe_id),
+                                        .sequence_no(sequence_no));
+      run_dma_job(.tag({tag, "_fresh"}), .opq_words(16),
+                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .sequence_no(sequence_no + 32'd1),
+                  .timeout_cycles(300000));
+      check_status_bit({tag, "_fresh"}, "status[EOE]", RDMA_DMA_ST_EOE,
+                       1'b1);
+      check_status_bit({tag, "_fresh"}, "status[ALIGN_ERR]",
+                       RDMA_DMA_ST_ALIGN_ERR, 1'b0);
+    endtask
+
+    task run_error_dbg1_bresp_observability_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      bit saw_waiting_b;
+
+      stop_monitor = 1'b0;
+      saw_waiting_b = 1'b0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.dbg1_writer_state == 4'd4)
+              saw_waiting_b = 1'b1;
+          end
+        end
+      join_none
+      run_error_bresp_case(.tag(tag),
+                           .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
+                           .error_index(-1),
+                           .opq_words(64),
+                           .sqe_id(sqe_id),
+                           .sequence_no(sequence_no));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (env.debug_level >= 1) begin
+        if (!saw_waiting_b)
+          `uvm_error(tag, "dbg1_writer_state did not observe WR_WAITING_B")
+        check_u32_equal(tag, "dbg1_writer_state idle",
+                        vif.dbg1_writer_state, 32'd0);
+        check_u32_equal(tag, "dbg1_aw_inflight idle",
+                        vif.dbg1_aw_inflight, 32'd0);
+        check_u32_equal(tag, "dbg1_b_outstanding idle",
+                        vif.dbg1_b_outstanding, 32'd0);
+      end
+    endtask
+
+    task run_error_dbg2_reordered_lineage_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit saw_reordered;
+
+      saw_reordered = 1'b0;
+      expect_simple_status_job(64'd8, 32'd8, 32'd0,
+                               single_seg_eoe_status(),
+                               single_seg_status_mask(), sqe_id);
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_opq_word({8'h00, sequence_no[15:0], 8'h00},
+                            1'b0, sequence_no, next_lineage_id + 2);
+      drive_direct_opq_word({8'h00, sequence_no[15:0], 8'h01},
+                            1'b1, sequence_no, next_lineage_id + 1);
+      next_lineage_id += 2;
+      wait_for_done(300000);
+      wait_cycles(2);
+      if (env.debug_level >= 2) begin
+        saw_reordered = (env.scb.dbg2_emit_count == 2);
+        if (!saw_reordered)
+          `uvm_error(tag, "DEBUG2 reordered lineage pair was not emitted")
+      end
+    endtask
+
+    task run_error_dbg2_duplicate_lineage_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      expect_simple_status_job(64'd8, 32'd8, 32'd0,
+                               single_seg_eoe_status(),
+                               single_seg_status_mask(), sqe_id);
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_opq_word({8'h00, sequence_no[15:0], 8'h00},
+                            1'b0, sequence_no, next_lineage_id + 1);
+      drive_direct_opq_word({8'h00, sequence_no[15:0], 8'h01},
+                            1'b1, sequence_no, next_lineage_id + 1);
+      next_lineage_id += 2;
+      wait_for_done(300000);
+      wait_cycles(2);
+      if ((env.debug_level >= 2) && (env.scb.dbg2_emit_count != 2))
+        `uvm_error(tag, "DEBUG2 duplicate lineage pair was not emitted")
+    endtask
+
+    task run_error_dbg2_reset_residual_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_error_reset_writer_state_case(.tag({tag, "_reset"}),
+                                        .target_state(4'd3),
+                                        .sqe_id(sqe_id),
+                                        .sequence_no(sequence_no));
+      run_dma_job(.tag({tag, "_fresh"}), .opq_words(8),
+                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .sequence_no(sequence_no + 32'd1),
+                  .timeout_cycles(300000));
+      if ((env.debug_level >= 2) && (env.scb.dbg2_emit_count != 8))
+        `uvm_error(tag, "DEBUG2 lineage did not restart cleanly after reset")
+    endtask
+
+    task run_error_clear_idle_case(input string tag);
+      pulse_clear_counters();
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd0);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd0);
+      check_u32_equal(tag, "cnt_halt", vif.cnt_halt, 32'd0);
+      check_u32_equal(tag, "cnt_eoe_observed", vif.cnt_eoe_observed, 32'd0);
+    endtask
+
+    task run_error_clear_during_writer_state_case(
+      input string tag,
+      input bit [3:0] target_state,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit clear_done;
+
+      clear_done = 1'b0;
+      fork
+        begin
+          wait_for_dbg1_state(tag, target_state);
+          pulse_clear_counters();
+          clear_done = 1'b1;
+          check_u32_equal(tag, "cnt_input_w after clear", vif.cnt_input_w,
+                          32'd0);
+          check_u32_equal(tag, "cnt_bytes_written after clear",
+                          vif.cnt_bytes_written, 32'd0);
+        end
+        begin
+          run_dma_job(.tag({tag, "_job"}), .opq_words(128),
+                      .send_eoe(1'b1),
+                      .wready_lag((target_state == 4'd3) ? 64 : 0),
+                      .bvalid_lag((target_state == 4'd4) ? 64 : 1),
+                      .sqe_id(sqe_id), .sequence_no(sequence_no),
+                      .timeout_cycles(500000));
+        end
+      join
+      if (!clear_done)
+        `uvm_error(tag, "clear_counters was not issued in target state")
+      check_status_bit({tag, "_job"}, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
+    endtask
+
     task run_profile_multi_event_case(
       input string tag,
       input int unsigned event_count,
@@ -9494,10 +9688,59 @@ package rdma_dma_engine_pkg;
             default: run_error_idle_reset_case(id);
           endcase
           return;
-        end else if (num <= 61) begin
-          words = 16 + (num % 64);
-          if (num >= 49 && num <= 52)
-            bresp = (num == 49) ? axi4_write_pkg::AXI_RESP_SLVERR : axi4_write_pkg::AXI_RESP_OKAY;
+        end else if (num <= 64) begin
+          case (num)
+            49: run_error_bresp_recovery_case(.tag(id),
+                                               .sqe_id(sqe_id),
+                                               .sequence_no(num));
+            50: run_align_error_then_clean_case(.tag(id),
+                                                .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            51: run_error_reset_mid_job_recovery_case(.tag(id),
+                                                      .sqe_id(sqe_id),
+                                                      .sequence_no(num));
+            52: run_fifo_recovery_after_halt_case(.tag(id),
+                                                  .sqe_id(sqe_id),
+                                                  .sequence_no(num));
+            53: run_error_dbg1_bresp_observability_case(.tag(id),
+                                                        .sqe_id(sqe_id),
+                                                        .sequence_no(num));
+            54: run_error_reset_writer_state_case(.tag(id),
+                                                  .target_state(4'd3),
+                                                  .sqe_id(sqe_id),
+                                                  .sequence_no(num));
+            55: run_writer_align_err_transition_case(.tag(id),
+                                                     .sqe_id(sqe_id));
+            56: run_halt_count_job(.tag(id), .dropped_words(8),
+                                   .sqe_id(sqe_id),
+                                   .sequence_no(num));
+            57: run_dbg2_halt_residual_case(.tag(id),
+                                            .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            58: run_error_dbg2_reordered_lineage_case(.tag(id),
+                                                      .sqe_id(sqe_id),
+                                                      .sequence_no(num));
+            59: run_error_dbg2_duplicate_lineage_case(.tag(id),
+                                                      .sqe_id(sqe_id),
+                                                      .sequence_no(num));
+            60: run_error_dbg2_reset_residual_case(.tag(id),
+                                                   .sqe_id(sqe_id),
+                                                   .sequence_no(num));
+            61: run_dbg2_halt_residual_case(.tag(id),
+                                            .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            62: run_error_clear_idle_case(id);
+            63: run_error_clear_during_writer_state_case(.tag(id),
+                                                         .target_state(4'd3),
+                                                         .sqe_id(sqe_id),
+                                                         .sequence_no(num));
+            64: run_error_clear_during_writer_state_case(.tag(id),
+                                                         .target_state(4'd4),
+                                                         .sqe_id(sqe_id),
+                                                         .sequence_no(num));
+            default: run_error_idle_reset_case(id);
+          endcase
+          return;
         end else if (num <= 95) begin
           words = 64 + (num % 64);
           if (num % 4 == 0)
