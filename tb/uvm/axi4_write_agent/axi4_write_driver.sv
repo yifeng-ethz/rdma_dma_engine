@@ -14,6 +14,7 @@ class axi4_write_driver extends uvm_component;
   bit scheduled_wlast;
   bit b_clear_pending;
   bit pending_b;
+  int unsigned b_response_count;
 
   function new(string name, uvm_component parent);
     super.new(name, parent);
@@ -25,6 +26,7 @@ class axi4_write_driver extends uvm_component;
     scheduled_wlast = 1'b0;
     b_clear_pending = 1'b0;
     pending_b = 1'b0;
+    b_response_count = 0;
   endfunction
 
   function void build_phase(uvm_phase phase);
@@ -53,6 +55,7 @@ class axi4_write_driver extends uvm_component;
         wready_countdown = 0;
         pending_b = 1'b0;
         pending_b_countdown = 0;
+        b_response_count = 0;
         continue;
       end
 
@@ -117,7 +120,15 @@ class axi4_write_driver extends uvm_component;
       end else if (pending_b) begin
         if (pending_b_countdown == 0) begin
           vif.m_axi_bid <= 4'h0;
-          vif.m_axi_bresp <= cfg.bresp;
+          if ((cfg.bresp_error_index >= 0) &&
+              (int'(b_response_count) == cfg.bresp_error_index)) begin
+            vif.m_axi_bresp <= cfg.bresp;
+          end else if (cfg.bresp_error_index >= 0) begin
+            vif.m_axi_bresp <= cfg.bresp_default;
+          end else begin
+            vif.m_axi_bresp <= cfg.bresp;
+          end
+          b_response_count++;
           vif.m_axi_bvalid <= 1'b1;
           pending_b = 1'b0;
         end else begin

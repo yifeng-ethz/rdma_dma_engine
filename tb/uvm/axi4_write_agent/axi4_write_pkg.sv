@@ -51,6 +51,8 @@ package axi4_write_pkg;
     int unsigned wready_lag;
     int unsigned bvalid_lag;
     bit [1:0] bresp;
+    int signed bresp_error_index;
+    bit [1:0] bresp_default;
 
     function new(string name = "axi4_write_cfg");
       super.new(name);
@@ -58,6 +60,8 @@ package axi4_write_pkg;
       wready_lag = 0;
       bvalid_lag = 1;
       bresp = AXI_RESP_OKAY;
+      bresp_error_index = -1;
+      bresp_default = AXI_RESP_OKAY;
     endfunction
   endclass
 
@@ -67,4 +71,3 @@ package axi4_write_pkg;
 endpackage
 
 `endif
-

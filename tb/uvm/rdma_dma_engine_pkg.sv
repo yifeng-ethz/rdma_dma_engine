@@ -455,6 +455,8 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 1;
       env.axi_cfg.bresp = axi4_write_pkg::AXI_RESP_OKAY;
+      env.axi_cfg.bresp_error_index = -1;
+      env.axi_cfg.bresp_default = axi4_write_pkg::AXI_RESP_OKAY;
       env.scb.set_allow_non_okay_bresp(1'b0);
     endtask
 
@@ -3510,6 +3512,176 @@ package rdma_dma_engine_pkg;
     task run_error_idle_reset_case(input string tag);
       apply_midrun_reset();
       check_reset_defaults(tag);
+    endtask
+
+    task run_error_wait_awvalid(input string tag);
+      bit saw_awvalid;
+      saw_awvalid = 1'b0;
+      for (int unsigned cycle = 0; cycle < 512; cycle++) begin
+        @(posedge vif.clk);
+        if (vif.m_axi_awvalid) begin
+          saw_awvalid = 1'b1;
+          break;
+        end
+      end
+      if (!saw_awvalid)
+        `uvm_error(tag, "m_axi_awvalid was not observed before reset")
+    endtask
+
+    task run_error_reset_writer_state_case(
+      input string tag,
+      input bit [3:0] target_state,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no,
+      input bit require_awvalid = 1'b0
+    );
+      env.axi_cfg.awready_lag = (target_state == 4'd2) ? 64 : 0;
+      env.axi_cfg.wready_lag = (target_state == 4'd3) ? 64 : 0;
+      env.axi_cfg.bvalid_lag = (target_state == 4'd4) ? 64 : 1;
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      if (target_state == 4'd1) begin
+        if (vif.dbg1_writer_state !== 4'd1)
+          `uvm_error(tag, $sformatf("WR_PROGRAMMING not observed, got=%0d",
+                                    vif.dbg1_writer_state))
+      end else begin
+        wait_cycles(2);
+        drive_direct_words(64, 1'b1, sequence_no, next_lineage_id);
+        wait_for_dbg1_state(tag, target_state);
+        if (require_awvalid)
+          run_error_wait_awvalid(tag);
+      end
+      apply_midrun_reset();
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      env.axi_cfg.bvalid_lag = 1;
+      check_reset_defaults(tag);
+    endtask
+
+    task run_error_reset_on_job_req_case(input string tag);
+      @(negedge vif.clk);
+      vif.job_seg0_addr <= 64'h0000_0000_0010_0000;
+      vif.job_seg0_span <= 64'h0000_0000_0000_1000;
+      vif.job_seg1_addr <= 64'h0000_0000_0000_0000;
+      vif.job_seg1_span <= 64'h0000_0000_0000_0000;
+      vif.job_sqe_id <= 16'h0222;
+      vif.job_opcode <= 16'h0001;
+      vif.job_req <= 1'b1;
+      vif.reset_n <= 1'b0;
+      repeat (4) @(posedge vif.clk);
+      @(negedge vif.clk);
+      vif.job_req <= 1'b0;
+      vif.reset_n <= 1'b1;
+      repeat (8) @(posedge vif.clk);
+      env.scb.reset_model();
+      env.scb.configure_case(case_id, scorecard_path, env.debug_level);
+      check_reset_defaults(tag);
+    endtask
+
+    task run_error_reset_on_job_done_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd32, 32'd32, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(8, 1'b1, sequence_no, next_lineage_id);
+      wait_for_done(300000);
+      @(negedge vif.clk);
+      vif.reset_n <= 1'b0;
+      repeat (4) @(posedge vif.clk);
+      @(negedge vif.clk);
+      vif.reset_n <= 1'b1;
+      repeat (8) @(posedge vif.clk);
+      env.scb.reset_model();
+      env.scb.configure_case(case_id, scorecard_path, env.debug_level);
+      check_reset_defaults(tag);
+    endtask
+
+    task run_error_reset_pulse_train_case(input string tag);
+      for (int unsigned idx = 0; idx < 10; idx++) begin
+        @(negedge vif.clk);
+        vif.reset_n <= 1'b0;
+        repeat (2) @(posedge vif.clk);
+        @(negedge vif.clk);
+        vif.reset_n <= 1'b1;
+        repeat (2) @(posedge vif.clk);
+      end
+      env.scb.reset_model();
+      env.scb.configure_case(case_id, scorecard_path, env.debug_level);
+      check_reset_defaults(tag);
+    endtask
+
+    task run_error_long_reset_case(input string tag);
+      @(negedge vif.clk);
+      vif.reset_n <= 1'b0;
+      repeat (1000) @(posedge vif.clk);
+      @(negedge vif.clk);
+      vif.reset_n <= 1'b1;
+      repeat (8) @(posedge vif.clk);
+      env.scb.reset_model();
+      env.scb.configure_case(case_id, scorecard_path, env.debug_level);
+      check_reset_defaults(tag);
+    endtask
+
+    task run_error_reset_then_job_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      apply_midrun_reset();
+      wait_cycles(1);
+      run_dma_job(.tag({tag, "_post_reset"}), .opq_words(8),
+                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+      check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
+      check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
+                       1'b0);
+    endtask
+
+    task run_error_reset_clears_counters_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_dma_job(.tag({tag, "_pre_reset"}), .opq_words(32),
+                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+      if ((vif.cnt_input_w == 32'd0) || (vif.cnt_bytes_written == 32'd0))
+        `uvm_error(tag, "pre-reset counters did not accumulate")
+      apply_midrun_reset();
+      check_reset_defaults(tag);
+    endtask
+
+    task run_error_bresp_case(
+      input string tag,
+      input bit [1:0] bresp,
+      input int signed error_index,
+      input int unsigned opq_words,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      env.axi_cfg.bresp_error_index = error_index;
+      env.axi_cfg.bresp_default = axi4_write_pkg::AXI_RESP_OKAY;
+      run_dma_job(.tag(tag), .opq_words(opq_words), .send_eoe(1'b1),
+                  .bresp(bresp), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(500000));
+      check_status_bit(tag, "status[AXI_ERR]", 6, 1'b1);
+      check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
+                       1'b0);
     endtask
 
     task run_profile_multi_event_case(
@@ -8982,8 +9154,70 @@ package rdma_dma_engine_pkg;
                        .sequence_no(num));
           endcase
           return;
-        end else if (num <= 28) begin
-          run_reset_mid_aw_case(id);
+        end else if (num <= 32) begin
+          case (num)
+            17: run_error_reset_writer_state_case(.tag(id),
+                                                  .target_state(4'd1),
+                                                  .sqe_id(sqe_id),
+                                                  .sequence_no(num));
+            18: run_error_reset_writer_state_case(.tag(id),
+                                                  .target_state(4'd2),
+                                                  .sqe_id(sqe_id),
+                                                  .sequence_no(num),
+                                                  .require_awvalid(1'b1));
+            19: run_error_reset_writer_state_case(.tag(id),
+                                                  .target_state(4'd3),
+                                                  .sqe_id(sqe_id),
+                                                  .sequence_no(num));
+            20: run_error_reset_writer_state_case(.tag(id),
+                                                  .target_state(4'd4),
+                                                  .sqe_id(sqe_id),
+                                                  .sequence_no(num));
+            21: run_error_reset_writer_state_case(.tag(id),
+                                                  .target_state(4'd5),
+                                                  .sqe_id(sqe_id),
+                                                  .sequence_no(num));
+            22: run_error_reset_on_job_req_case(id);
+            23: run_error_reset_on_job_done_case(.tag(id),
+                                                 .sqe_id(sqe_id),
+                                                 .sequence_no(num));
+            24: run_error_reset_pulse_train_case(id);
+            25: run_error_long_reset_case(id);
+            26: run_error_reset_then_job_case(.tag(id),
+                                              .sqe_id(sqe_id),
+                                              .sequence_no(num));
+            27: run_error_reset_clears_counters_case(.tag(id),
+                                                     .sqe_id(sqe_id),
+                                                     .sequence_no(num));
+            28: run_error_reset_writer_state_case(.tag(id),
+                                                  .target_state(4'd3),
+                                                  .sqe_id(sqe_id),
+                                                  .sequence_no(num));
+            29: run_error_bresp_case(.tag(id),
+                                     .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
+                                     .error_index(-1),
+                                     .opq_words(64),
+                                     .sqe_id(sqe_id),
+                                     .sequence_no(num));
+            30: run_error_bresp_case(.tag(id), .bresp(2'b11),
+                                     .error_index(-1),
+                                     .opq_words(64),
+                                     .sqe_id(sqe_id),
+                                     .sequence_no(num));
+            31: run_error_bresp_case(.tag(id),
+                                     .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
+                                     .error_index(0),
+                                     .opq_words(256),
+                                     .sqe_id(sqe_id),
+                                     .sequence_no(num));
+            32: run_error_bresp_case(.tag(id),
+                                     .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
+                                     .error_index(1),
+                                     .opq_words(256),
+                                     .sqe_id(sqe_id),
+                                     .sequence_no(num));
+            default: run_error_idle_reset_case(id);
+          endcase
           return;
         end else if (num <= 34) begin
           bresp = (num == 30 || num == 34) ? 2'b11 : axi4_write_pkg::AXI_RESP_SLVERR;
