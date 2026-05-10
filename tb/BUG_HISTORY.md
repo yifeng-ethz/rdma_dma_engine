@@ -50,7 +50,7 @@ Historical formal note:
 | [BUG-008-H](#bug-008-h-zero-latency-axi-completer-stretched-w-bursts) | H | non-datapath-refactor | directed-only (queue-math zero-latency throughput smoke) | fixed | Phase B B117 | `5119579` | The AXI completer deasserted WREADY between zero-lag W beats, stretching one 16-beat burst to 31 cycles. |
 | [BUG-009-H](#bug-009-h-halt-helper-restarted-debug2-lineage-inside-later-jobs) | H | non-datapath-refactor | directed-only (multi-job cross-validation after halt injection) | fixed | Phase B B125 | `26333c0` | The halt helper restarted DEBUG2 hit/source IDs instead of carrying the global OPQ lineage across a later job. |
 | [BUG-010-R](#bug-010-r-axi-aw-bursts-could-cross-4kb-pages-under-bvalid-latency) | R | soft error | occasional (legal long DMA spans with host B-channel latency) | fixed | Phase B P002 | `fc55718` | Writer burst sizing ignored the remaining bytes before the next 4KB page and could issue AWLEN=15 from 0x...0f00. |
-| [BUG-011-H](#bug-011-h-sparse-opq-sequence-idled-after-final-eoe-and-missed-job-done) | H | non-datapath-refactor | directed-only (sparse OPQ profile wait timing) | fixed | Phase B P007 | `pending` | The OPQ sequence inserted sparse idle after the final EOE item, so the test waited for job_done only after the one-cycle pulse had passed. |
+| [BUG-011-H](#bug-011-h-sparse-opq-sequence-idled-after-final-eoe-and-missed-job-done) | H | non-datapath-refactor | directed-only (sparse OPQ profile wait timing) | fixed | Phase B P007 | `8c4ecfe` | The OPQ sequence inserted sparse idle after the final EOE item, so the test waited for job_done only after the one-cycle pulse had passed. |
 
 ## 2026-05-10
 
@@ -88,7 +88,7 @@ Historical formal note:
   - failing logs were captured at `tb/uvm/logs/dbg1/P007.log` and
     `tb/uvm/logs/dbg2/P007.log`
 - Commit:
-  - `pending`
+  - `8c4ecfe`
 
 ### BUG-010-R: AXI AW bursts could cross 4KB pages under BVALID latency
 - First seen in:
