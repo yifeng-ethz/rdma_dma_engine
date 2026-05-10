@@ -1,8 +1,8 @@
 // File name: rdma_dma_writer.sv
 // Author  : Yifeng Wang (yifenwan@phys.ethz.ch)
-// Version : 26.1.0
+// Version : 26.1.1
 // Date    : 20260510
-// Change  : implement AXI4 burst writer with two-segment scatter
+// Change  : cap AXI4 bursts at 4KB page boundaries
 
 `default_nettype none
 
@@ -174,15 +174,29 @@ module rdma_dma_writer #(
 
     function automatic logic [7:0] choose_aw_beats(
         input logic [FIFO_LEVEL_W-1:0] level,
-        input logic [63:0]             bytes_left
+        input logic [63:0]             bytes_left,
+        input logic [63:0]             cur_addr
     );
         logic [7:0]  choose_v_segment_cap;
+        logic [7:0]  choose_v_page_cap;
         logic [7:0]  choose_v_candidate;
+        logic [7:0]  choose_v_page_beats;
+        logic [12:0] choose_v_page_bytes;
         begin
             if (bytes_left[63:9] != '0) begin
                 choose_v_segment_cap = MAX_BURST_BEATS_CONST;
             end else begin
                 choose_v_segment_cap = {4'h0, bytes_left[8:5]};
+            end
+
+            choose_v_page_bytes = 13'd4096 - {1'b0, cur_addr[11:0]};
+            choose_v_page_beats = choose_v_page_bytes[12:5];
+            if (choose_v_page_beats == 8'h00) begin
+                choose_v_page_cap = 8'h01;
+            end else if (choose_v_page_beats > MAX_BURST_BEATS_CONST) begin
+                choose_v_page_cap = MAX_BURST_BEATS_CONST;
+            end else begin
+                choose_v_page_cap = choose_v_page_beats;
             end
 
             choose_v_candidate = MAX_BURST_BEATS_CONST;
@@ -191,6 +205,9 @@ module rdma_dma_writer #(
             end
             if (choose_v_segment_cap < choose_v_candidate) begin
                 choose_v_candidate = choose_v_segment_cap;
+            end
+            if (choose_v_page_cap < choose_v_candidate) begin
+                choose_v_candidate = choose_v_page_cap;
             end
             return choose_v_candidate;
         end
@@ -220,7 +237,8 @@ module rdma_dma_writer #(
         ((job_seg1_span != 64'h0000_0000_0000_0000) &&
          ((job_seg1_addr[11:0] != 12'h000) || (job_seg1_span[11:0] != 12'h000)));
 
-    assign aw_beats               = choose_aw_beats(fifo_level, writer.bytes_left_seg);
+    assign aw_beats               = choose_aw_beats(fifo_level, writer.bytes_left_seg,
+                                                    writer.cur_addr);
     assign aw_can_issue           = (writer.state == WR_ISSUING_AW) && writer.aw_latched;
     assign eoe_fifo_tail_ready    = writer.eoe_seen &&
                                     (packer_empty ||

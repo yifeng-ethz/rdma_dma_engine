@@ -49,8 +49,47 @@ Historical formal note:
 | [BUG-007-R](#bug-007-r-eoe-reporting-could-close-before-later-event-beats-drained) | R | soft error | occasional (multi-event EOE jobs under host B-channel latency) | fixed | Phase B B066 | `c884e45` | The writer stopped accepting later event beats and reported after the first EOE/B response instead of draining all accepted multi-event data. |
 | [BUG-008-H](#bug-008-h-zero-latency-axi-completer-stretched-w-bursts) | H | non-datapath-refactor | directed-only (queue-math zero-latency throughput smoke) | fixed | Phase B B117 | `5119579` | The AXI completer deasserted WREADY between zero-lag W beats, stretching one 16-beat burst to 31 cycles. |
 | [BUG-009-H](#bug-009-h-halt-helper-restarted-debug2-lineage-inside-later-jobs) | H | non-datapath-refactor | directed-only (multi-job cross-validation after halt injection) | fixed | Phase B B125 | `26333c0` | The halt helper restarted DEBUG2 hit/source IDs instead of carrying the global OPQ lineage across a later job. |
+| [BUG-010-R](#bug-010-r-axi-aw-bursts-could-cross-4kb-pages-under-bvalid-latency) | R | soft error | occasional (legal long DMA spans with host B-channel latency) | fixed | Phase B P002 | `pending` | Writer burst sizing ignored the remaining bytes before the next 4KB page and could issue AWLEN=15 from 0x...0f00. |
 
 ## 2026-05-10
+
+### BUG-010-R: AXI AW bursts could cross 4KB pages under BVALID latency
+- First seen in:
+  - `make -C tb/uvm -j2 phase_b_dbg1 phase_b_dbg2 REGRESS_CASES="test_p001_phase_b:P001 ... test_p016_phase_b:P016"` on `2026-05-10`
+  - generated Phase B case `P002` under DEBUG_LEVEL=1 and DEBUG_LEVEL=2
+- Symptom:
+  - P002 drove 100 events with 64 OPQ words per event and `bvalid_lag=250`
+  - the scoreboard reported six AXI AW bursts crossing a 4KB page boundary,
+    including `addr=0x0000000000100f00 len=15` and later page offsets
+    `0x...101f00` through `0x...105f00`
+  - both debug lanes completed the job with payload residuals at zero, so the
+    failure was isolated to the AXI burst contract rather than data ordering
+- Root cause:
+  - `rdma_dma_writer` chose AW beats from FIFO depth and remaining segment
+    bytes, but did not cap a burst by remaining bytes before the next 4KB page
+  - with long spans and B-channel latency, the writer could reach page offset
+    `0xf00`, see at least 16 FIFO entries, and issue an illegal 16-beat INCR
+    burst across the page boundary
+- Fix status:
+  - state: fixed; AW burst sizing now honors the 4KB page boundary
+  - mechanism: `choose_aw_beats` also receives `writer.cur_addr`, computes the
+    number of 32-byte beats left in the current 4KB page, and caps the chosen
+    burst length before `m_axi_awlen` is latched
+  - before_fix_outcome: P002 failed in both debug lanes with six
+    `AW burst crosses 4KB page` errors while reporting `opq=6400 aw=51
+    w=800 b=51 done=1 mismatches=6`
+  - after_fix_outcome: focused P002 rerun passed in DEBUG_LEVEL=1 and
+    DEBUG_LEVEL=2 with `opq=6400 aw=51 w=800 b=51 done=1 mismatches=0`;
+    `make -C tb/uvm cross_validate CASES="P002"` reported zero residual
+    mismatch
+  - potential_hazard: closed for 32-byte aligned segment traffic; full PROF
+    and ERROR regressions remain the broader stress gate
+  - Claude Opus 4.7 xhigh review decision: pending / not run
+- Runtime / coverage context:
+  - failing logs were captured at `tb/uvm/logs/dbg1/P002.log` and
+    `tb/uvm/logs/dbg2/P002.log`
+- Commit:
+  - `pending`
 
 ### BUG-009-H: Halt helper restarted DEBUG2 lineage inside later jobs
 - First seen in:
