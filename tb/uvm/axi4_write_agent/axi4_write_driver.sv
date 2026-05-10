@@ -12,6 +12,7 @@ class axi4_write_driver extends uvm_component;
   bit aw_waiting;
   bit w_waiting;
   bit scheduled_wlast;
+  bit b_clear_pending;
   bit pending_b;
 
   function new(string name, uvm_component parent);
@@ -22,6 +23,7 @@ class axi4_write_driver extends uvm_component;
     aw_waiting = 1'b0;
     w_waiting = 1'b0;
     scheduled_wlast = 1'b0;
+    b_clear_pending = 1'b0;
     pending_b = 1'b0;
   endfunction
 
@@ -46,6 +48,7 @@ class axi4_write_driver extends uvm_component;
         aw_waiting = 1'b0;
         w_waiting = 1'b0;
         scheduled_wlast = 1'b0;
+        b_clear_pending = 1'b0;
         awready_countdown = 0;
         wready_countdown = 0;
         pending_b = 1'b0;
@@ -98,8 +101,11 @@ class axi4_write_driver extends uvm_component;
         pending_b_countdown = cfg.bvalid_lag;
       end
 
-      if (vif.m_axi_bvalid && vif.m_axi_bready) begin
+      if (b_clear_pending) begin
         vif.m_axi_bvalid <= 1'b0;
+        b_clear_pending = 1'b0;
+      end else if (vif.m_axi_bvalid && vif.m_axi_bready) begin
+        b_clear_pending = 1'b1;
       end else if (pending_b) begin
         if (pending_b_countdown == 0) begin
           vif.m_axi_bid <= 4'h0;

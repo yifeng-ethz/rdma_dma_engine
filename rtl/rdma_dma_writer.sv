@@ -167,6 +167,7 @@ module rdma_dma_writer #(
     logic       aw_fire;
     logic       w_fire;
     logic       b_fire;
+    logic       eoe_fifo_tail_ready;
     logic [5:0] useful_bytes;
     logic       final_beat_exhausts_seg;
     logic       eoe_report_ready;
@@ -221,9 +222,12 @@ module rdma_dma_writer #(
 
     assign aw_beats               = choose_aw_beats(fifo_level, writer.bytes_left_seg);
     assign aw_can_issue           = (writer.state == WR_ISSUING_AW) && writer.aw_latched;
+    assign eoe_fifo_tail_ready    = writer.eoe_seen &&
+                                    (packer_empty ||
+                                     (fifo_level >= MAX_BURST_LEVEL_CONST));
     assign aw_latch_ready         = (writer.state == WR_ISSUING_AW) &&
                                     (aw_beats != 8'h00) &&
-                                    (writer.eoe_seen ||
+                                    (eoe_fifo_tail_ready ||
                                      (fifo_level >= MAX_BURST_LEVEL_CONST) ||
                                      ((64'(fifo_level) << AXI_SIZE_CONST) >=
                                       writer.bytes_left_seg));

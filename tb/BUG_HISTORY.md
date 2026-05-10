@@ -43,9 +43,99 @@ Historical formal note:
 | [BUG-001-R](#bug-001-r-packer-word-order-reverses-dv-plan-msb-first-contract) | H | soft error | common (single full DMA word) | fixed | B002 dual-debug smoke | `3d2ba7f` | TB scoreboard and docs expected MSB-first while RTL/prototype pack LSB-first. |
 | [BUG-002-R](#bug-002-r-aw-burst-metadata-could-drift-and-underfill-streaming-bursts) | R | soft error | common (streaming DMA with AW backpressure or max-burst checks) | fixed | Phase B B015/B052 expansion | `eb0ce24` | AW fields were not fully transaction-latched and the writer latched bursts before the FIFO could reach max-burst depth. |
 | [BUG-003-H](#bug-003-h-dual-debug-lineage-scorecards-used-different-sequence-number-canonicals) | H | non-datapath-refactor | directed-only (dual-debug scorecard comparison for generated cases) | fixed | Phase B B013-B016 cross-validate | `eb0ce24` | DEBUG_LEVEL=1 scorecards synthesized sequence_no=1 while DEBUG_LEVEL=2 carried the generated case SQE-derived sequence number. |
-| [BUG-004-H](#bug-004-h-generated-phase-b-lineage-harness-coupled-independent-fields) | H | non-datapath-refactor | directed-only (long dual-debug generated-case comparison) | fixed | Phase B B017-B032 expansion | `pending` | Generated Phase B sequence metadata was coupled to SQE IDs and payload byte rollover, breaking long-case dual-debug evidence. |
+| [BUG-004-H](#bug-004-h-generated-phase-b-lineage-harness-coupled-independent-fields) | H | non-datapath-refactor | directed-only (long dual-debug generated-case comparison) | fixed | Phase B B017-B032 expansion | `2dd9507` | Generated Phase B sequence metadata was coupled to SQE IDs and payload byte rollover, breaking long-case dual-debug evidence. |
+| [BUG-005-H](#bug-005-h-axi-completer-dropped-same-cycle-bvalid-before-clocked-handshake) | H | non-datapath-refactor | directed-only (same-cycle BVALID stress) | fixed | Phase B B059 | `pending` | The AXI completer deasserted BVALID before the DUT could sample a same-cycle B-channel handshake. |
+| [BUG-006-R](#bug-006-r-eoe-tail-could-remain-behind-short-final-aw) | R | soft error | common (EOE after full FIFO beats but before a 16-beat burst is available) | fixed | Phase B B063 | `pending` | The writer could latch a short final AW before the packer had pushed the EOE partial tail into the FIFO. |
 
 ## 2026-05-10
+
+### BUG-006-R: EOE tail could remain behind short final AW
+- First seen in:
+  - `make -C tb/uvm -j2 phase_b_dbg1 phase_b_dbg2 REGRESS_CASES="test_b049_phase_b:B049 ... test_b064_phase_b:B064"` on `2026-05-10`
+  - generated Phase B case `B063` under DEBUG_LEVEL=1 and DEBUG_LEVEL=2
+- Symptom:
+  - `B063` completed instead of timing out, but the report showed only the
+    full FIFO beats that had reached the writer before the EOE tail
+  - DEBUG_LEVEL=1 reported `job bytes mismatch got=224 expected=252` and
+    `seg0 bytes mismatch got=224 expected=252`
+  - DEBUG_LEVEL=2 additionally reported `DEBUG=2 lineage residual got=56
+    expected=63`
+- Root cause:
+  - `rdma_dma_packer` raises `eoe_pulse` when the last OPQ word is accepted,
+    before a non-full final packed beat has necessarily been emitted into the
+    data FIFO
+  - `rdma_dma_writer` treated `writer.eoe_seen` alone as permission to latch
+    a short final AW, so an event with seven full DMA beats already in the
+    FIFO and a partial EOE tail still inside the packer issued a seven-beat
+    AW and then reported completion after the B response
+  - the generated B063 stimulus also diverged from `tb/DV_BASIC.md` by driving
+    63 OPQ words instead of the documented 100-word counter case, which made
+    the same tail-drain bug visible with a 7-word residue
+- Fix status:
+  - state: fixed; short final EOE bursts now wait for the packer tail when
+    fewer than `MAX_BURST_BEATS` FIFO entries are available
+  - mechanism: the writer gates the EOE-driven AW latch on `packer_empty`
+    unless the FIFO already holds at least a full max burst; B063 stimulus now
+    drives the documented 100 OPQ words
+  - before_fix_outcome: `B063` reported 224 useful bytes and 56 DEBUG=2
+    lineage emissions against a 252-byte / 63-lineage expectation
+  - after_fix_outcome: isolated `B063` rerun passed in both debug lanes with
+    `opq=100 aw=1 w=13 b=1 done=1 mismatches=0`, and the full `B049-B064`
+    slice then passed in both debug lanes; `make -C tb/uvm cross_validate
+    CASES="B049 ... B064"` reported zero residual mismatch, and `make -C
+    tb/uvm merge_case_ucdbs REGRESS_CASE_IDS="B049 ... B064"` wrote
+    `B049.ucdb` through `B064.ucdb` with `Errors: 0`
+  - potential_hazard: closed for legal partial EOE tails that trail fewer than
+    16 full FIFO beats; full-FIFO tail backpressure remains allowed to drain a
+    max burst first
+  - Claude Opus 4.7 xhigh review decision: pending / not run
+- Runtime / coverage context:
+  - failing logs were captured at `tb/uvm/logs/dbg1/B063.log` and
+    `tb/uvm/logs/dbg2/B063.log`
+- Commit:
+  - `pending`
+
+### BUG-005-H: AXI completer dropped same-cycle BVALID before clocked handshake
+- First seen in:
+  - `make -C tb/uvm -j2 phase_b_dbg1 phase_b_dbg2 REGRESS_CASES="test_b049_phase_b:B049 ... test_b064_phase_b:B064"` on `2026-05-10`
+  - generated Phase B case `B059` under DEBUG_LEVEL=1 and DEBUG_LEVEL=2
+- Symptom:
+  - `B049` through `B058` passed in both debug lanes
+  - `B059` timed out waiting for `job_done` after the completer scheduled
+    `bvalid_lag=0`
+  - the DUT stayed in the B wait path because it never sampled a valid
+    B-channel handshake
+- Root cause:
+  - `axi4_write_driver.sv` asserted `m_axi_bvalid` on a negedge when the
+    WLAST beat completed
+  - when the DUT entered `WR_WAITING_B`, `m_axi_bready` became high
+    combinationally, and the driver deasserted `m_axi_bvalid` on the next
+    negedge before the DUT could sample `m_axi_bvalid && m_axi_bready` on a
+    clock edge
+  - AXI VALID must remain asserted until a clocked READY/VALID handshake is
+    observed, so the testbench completer was under-driving the same-cycle B
+    response stress
+- Fix status:
+  - state: fixed; same-cycle BVALID stress now completes
+  - mechanism: the AXI completer now marks a B clear pending when it first
+    observes `m_axi_bvalid && m_axi_bready` and only drops BVALID on the
+    following negedge, after the DUT has had a positive edge to sample the
+    handshake
+  - before_fix_outcome: `B059` timed out at `1204198 ns` in both debug lanes
+  - after_fix_outcome: isolated `B059` rerun passed in both debug lanes with
+    `opq=512 aw=4 w=64 b=4 done=1 mismatches=0`, and the full `B049-B064`
+    slice then passed in both debug lanes; `make -C tb/uvm cross_validate
+    CASES="B049 ... B064"` reported zero residual mismatch, and `make -C
+    tb/uvm merge_case_ucdbs REGRESS_CASE_IDS="B049 ... B064"` wrote
+    `B049.ucdb` through `B064.ucdb` with `Errors: 0`
+  - potential_hazard: closed for the UVM completer; this does not change RTL
+    B-channel behavior
+  - Claude Opus 4.7 xhigh review decision: pending / not run
+- Runtime / coverage context:
+  - failing logs were captured at `tb/uvm/logs/dbg1/B059.log` and
+    `tb/uvm/logs/dbg2/B059.log`
+- Commit:
+  - `pending`
 
 ### BUG-004-H: Generated Phase B lineage harness coupled independent fields
 - First seen in:

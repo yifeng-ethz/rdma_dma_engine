@@ -572,7 +572,9 @@ package rdma_dma_engine_pkg;
           w_lag = (num == 51) ? 4 : 0;
           b_lag = ((num == 59) || (num == 60)) ? ((num == 60) ? 100 : 0) : 1;
         end else if ((num >= 63) && (num <= 86)) begin
-          if ((num == 67) || (num == 84)) begin
+          if (num == 63) begin
+            words = 100;
+          end else if ((num == 67) || (num == 84)) begin
             words = 2048;
             send_eoe = 1'b0;
           end else begin
