@@ -3407,6 +3407,111 @@ package rdma_dma_engine_pkg;
                        RDMA_DMA_ST_EOE, 1'b1);
     endtask
 
+    task run_error_align_refusal_case(
+      input string tag,
+      input bit [63:0] seg0_addr,
+      input bit [63:0] seg0_span,
+      input bit [63:0] seg1_addr,
+      input bit [63:0] seg1_span,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned aw_before;
+      int unsigned w_before;
+
+      aw_before = env.scb.aw_count;
+      w_before = env.scb.w_count;
+      run_dma_job(.tag(tag), .seg0_addr(seg0_addr), .seg0_span(seg0_span),
+                  .seg1_addr(seg1_addr), .seg1_span(seg1_span),
+                  .opq_words(0), .send_eoe(1'b0), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+      check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
+                       1'b1);
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd0);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd0);
+      if ((env.scb.aw_count != aw_before) || (env.scb.w_count != w_before))
+        `uvm_error(tag, "ALIGN_ERR job unexpectedly issued AXI writes")
+    endtask
+
+    task run_error_single_segment_legal_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_dma_job(.tag(tag), .seg1_span(64'h0), .opq_words(8),
+                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+      check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
+                       1'b0);
+      check_status_bit(tag, "status[SEG0_ONLY]", RDMA_DMA_ST_SEG0_ONLY,
+                       1'b1);
+      check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd8);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd32);
+    endtask
+
+    task run_error_align_after_valid_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [31:0] cnt_input_before;
+      bit [31:0] cnt_bytes_before;
+      int unsigned aw_before;
+      int unsigned w_before;
+
+      run_dma_job(.tag({tag, "_valid"}), .opq_words(16), .send_eoe(1'b1),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(300000));
+      cnt_input_before = vif.cnt_input_w;
+      cnt_bytes_before = vif.cnt_bytes_written;
+      aw_before = env.scb.aw_count;
+      w_before = env.scb.w_count;
+      run_dma_job(.tag({tag, "_align"}), .seg0_addr(64'h0000_0000_0010_0001),
+                  .opq_words(0), .send_eoe(1'b0),
+                  .sqe_id(sqe_id + 16'd1),
+                  .sequence_no(sequence_no + 32'd100),
+                  .timeout_cycles(300000));
+      check_status_bit({tag, "_align"}, "status[ALIGN_ERR]",
+                       RDMA_DMA_ST_ALIGN_ERR, 1'b1);
+      check_u32_equal(tag, "cnt_input_w after ALIGN_ERR", vif.cnt_input_w,
+                      cnt_input_before);
+      check_u32_equal(tag, "cnt_bytes_written after ALIGN_ERR",
+                      vif.cnt_bytes_written, cnt_bytes_before);
+      if ((env.scb.aw_count != aw_before) || (env.scb.w_count != w_before))
+        `uvm_error(tag, "post-valid ALIGN_ERR job changed AXI counts")
+    endtask
+
+    task run_error_consecutive_align_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      for (int unsigned idx = 0; idx < 5; idx++) begin
+        run_dma_job(.tag($sformatf("%s_align%0d", tag, idx)),
+                    .seg0_addr(64'h0000_0000_0010_0001 + idx),
+                    .opq_words(0), .send_eoe(1'b0),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx[31:0]),
+                    .timeout_cycles(300000));
+        check_status_bit($sformatf("%s_align%0d", tag, idx),
+                         "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR, 1'b1);
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd5);
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd0);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd0);
+      if ((env.scb.aw_count != 0) || (env.scb.w_count != 0))
+        `uvm_error(tag, "consecutive ALIGN_ERR jobs issued AXI writes")
+    endtask
+
+    task run_error_idle_reset_case(input string tag);
+      apply_midrun_reset();
+      check_reset_defaults(tag);
+    endtask
+
     task run_profile_multi_event_case(
       input string tag,
       input int unsigned event_count,
@@ -8810,24 +8915,73 @@ package rdma_dma_engine_pkg;
         if (num >= 117)
           words = 256;
       end else if (prefix == "X") begin
-        if (num <= 15) begin
-          if (num == 1)
-            seg0_addr = 64'h0000_0000_0010_0001;
-          else if (num == 2)
-            seg0_addr = 64'h0000_0000_0010_0800;
-          else if (num == 3)
-            seg0_addr = 64'h0000_0000_0010_0fff;
-          else if ((num == 4) || (num == 5))
-            seg0_span = (num == 4) ? 64'h1001 : 64'h1100;
-          else if ((num == 6) || (num == 11))
-            seg0_span = 64'h0;
-          else if ((num >= 7) && (num <= 10)) begin
-            seg1_span = 64'h1000;
-            seg1_addr = (num == 8) ? 64'h0000_0000_0020_0000 : 64'h0000_0000_0020_0001;
-            if (num == 8)
-              seg1_span = 64'h1001;
-          end
-          words = 0;
+        if (num <= 16) begin
+          case (num)
+            1: run_error_align_refusal_case(
+                 .tag(id), .seg0_addr(64'h0000_0000_0010_0001),
+                 .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0000),
+                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+            2: run_error_align_refusal_case(
+                 .tag(id), .seg0_addr(64'h0000_0000_0010_0800),
+                 .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0000),
+                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+            3: run_error_align_refusal_case(
+                 .tag(id), .seg0_addr(64'h0000_0000_0010_0fff),
+                 .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0000),
+                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+            4: run_error_align_refusal_case(
+                 .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
+                 .seg0_span(64'h1001), .seg1_addr(64'h0000_0000_0020_0000),
+                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+            5: run_error_align_refusal_case(
+                 .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
+                 .seg0_span(64'h1100), .seg1_addr(64'h0000_0000_0020_0000),
+                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+            6: run_error_align_refusal_case(
+                 .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
+                 .seg0_span(64'h0), .seg1_addr(64'h0000_0000_0020_0000),
+                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+            7: run_error_align_refusal_case(
+                 .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
+                 .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0001),
+                 .seg1_span(64'h1000), .sqe_id(sqe_id), .sequence_no(num));
+            8: run_error_align_refusal_case(
+                 .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
+                 .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0000),
+                 .seg1_span(64'h1001), .sqe_id(sqe_id), .sequence_no(num));
+            9: run_error_align_refusal_case(
+                 .tag(id), .seg0_addr(64'h0000_0000_0010_0001),
+                 .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0001),
+                 .seg1_span(64'h1000), .sqe_id(sqe_id), .sequence_no(num));
+            10: run_error_align_refusal_case(
+                  .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
+                  .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0001),
+                  .seg1_span(64'h1000), .sqe_id(sqe_id), .sequence_no(num));
+            11: run_error_align_refusal_case(
+                  .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
+                  .seg0_span(64'h0), .seg1_addr(64'h0000_0000_0020_0000),
+                  .seg1_span(64'h1000), .sqe_id(sqe_id), .sequence_no(num));
+            12: run_error_single_segment_legal_case(.tag(id),
+                                                    .sqe_id(sqe_id),
+                                                    .sequence_no(num));
+            13: run_error_align_after_valid_case(.tag(id),
+                                                 .sqe_id(sqe_id),
+                                                 .sequence_no(num));
+            14: run_error_consecutive_align_case(.tag(id),
+                                                 .sqe_id(sqe_id),
+                                                 .sequence_no(num));
+            15: run_align_error_then_clean_case(.tag(id),
+                                                .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            16: run_error_idle_reset_case(id);
+            default: run_error_align_refusal_case(
+                       .tag(id), .seg0_addr(64'h0000_0000_0010_0001),
+                       .seg0_span(64'h1000),
+                       .seg1_addr(64'h0000_0000_0020_0000),
+                       .seg1_span(64'h0), .sqe_id(sqe_id),
+                       .sequence_no(num));
+          endcase
+          return;
         end else if (num <= 28) begin
           run_reset_mid_aw_case(id);
           return;
