@@ -34,6 +34,7 @@ COV_CODE ?= sbecft
 SMOKE_CASES := \
   test_b001_reset_idle:B001 \
   test_b002_single_job_hit_only_eoe:B002
+SMOKE_CASE_IDS := B001 B002
 
 RTL_TOP := $(shell cd "$(IP_DIR)" && git ls-files rtl/rdma_dma_engine.sv)
 ifeq ($(strip $(RTL_TOP)),)
@@ -68,7 +69,7 @@ ifneq ($(strip $(UVM_DPI_LIB)),)
 VSIM_FLAGS += -sv_lib $(UVM_DPI_LIB)
 endif
 
-.PHONY: all prepare compile compile_dbg1 compile_dbg2 run_one dbg1 dbg2 regress clean
+.PHONY: all prepare compile compile_dbg1 compile_dbg2 run_one dbg1 dbg2 cross_validate regress clean
 
 all: dbg1
 
@@ -108,6 +109,10 @@ dbg2:
 
 regress:
 	$(MAKE) -j2 dbg1 dbg2
+	$(MAKE) cross_validate
+
+cross_validate:
+	$(PYTHON) $(TB_DIR)/scripts/cross_validate_dbg.py --root $(TB_DIR)/cov_after --cases $(SMOKE_CASE_IDS)
 
 clean:
 	@echo "Manual cleanup required by project rule: no removal command is run by this Makefile."
