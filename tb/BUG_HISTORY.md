@@ -44,8 +44,8 @@ Historical formal note:
 | [BUG-002-R](#bug-002-r-aw-burst-metadata-could-drift-and-underfill-streaming-bursts) | R | soft error | common (streaming DMA with AW backpressure or max-burst checks) | fixed | Phase B B015/B052 expansion | `eb0ce24` | AW fields were not fully transaction-latched and the writer latched bursts before the FIFO could reach max-burst depth. |
 | [BUG-003-H](#bug-003-h-dual-debug-lineage-scorecards-used-different-sequence-number-canonicals) | H | non-datapath-refactor | directed-only (dual-debug scorecard comparison for generated cases) | fixed | Phase B B013-B016 cross-validate | `eb0ce24` | DEBUG_LEVEL=1 scorecards synthesized sequence_no=1 while DEBUG_LEVEL=2 carried the generated case SQE-derived sequence number. |
 | [BUG-004-H](#bug-004-h-generated-phase-b-lineage-harness-coupled-independent-fields) | H | non-datapath-refactor | directed-only (long dual-debug generated-case comparison) | fixed | Phase B B017-B032 expansion | `2dd9507` | Generated Phase B sequence metadata was coupled to SQE IDs and payload byte rollover, breaking long-case dual-debug evidence. |
-| [BUG-005-H](#bug-005-h-axi-completer-dropped-same-cycle-bvalid-before-clocked-handshake) | H | non-datapath-refactor | directed-only (same-cycle BVALID stress) | fixed | Phase B B059 | `pending` | The AXI completer deasserted BVALID before the DUT could sample a same-cycle B-channel handshake. |
-| [BUG-006-R](#bug-006-r-eoe-tail-could-remain-behind-short-final-aw) | R | soft error | common (EOE after full FIFO beats but before a 16-beat burst is available) | fixed | Phase B B063 | `pending` | The writer could latch a short final AW before the packer had pushed the EOE partial tail into the FIFO. |
+| [BUG-005-H](#bug-005-h-axi-completer-dropped-same-cycle-bvalid-before-clocked-handshake) | H | non-datapath-refactor | directed-only (same-cycle BVALID stress) | fixed | Phase B B059 | `21aca89` | The AXI completer deasserted BVALID before the DUT could sample a same-cycle B-channel handshake. |
+| [BUG-006-R](#bug-006-r-eoe-tail-could-remain-behind-short-final-aw) | R | soft error | common (EOE after full FIFO beats but before a 16-beat burst is available) | fixed | Phase B B063 | `21aca89` | The writer could latch a short final AW before the packer had pushed the EOE partial tail into the FIFO. |
 
 ## 2026-05-10
 
@@ -93,7 +93,7 @@ Historical formal note:
   - failing logs were captured at `tb/uvm/logs/dbg1/B063.log` and
     `tb/uvm/logs/dbg2/B063.log`
 - Commit:
-  - `pending`
+  - `21aca89`
 
 ### BUG-005-H: AXI completer dropped same-cycle BVALID before clocked handshake
 - First seen in:
@@ -135,7 +135,7 @@ Historical formal note:
   - failing logs were captured at `tb/uvm/logs/dbg1/B059.log` and
     `tb/uvm/logs/dbg2/B059.log`
 - Commit:
-  - `pending`
+  - `21aca89`
 
 ### BUG-004-H: Generated Phase B lineage harness coupled independent fields
 - First seen in:
