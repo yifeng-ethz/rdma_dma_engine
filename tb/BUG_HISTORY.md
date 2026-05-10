@@ -40,7 +40,7 @@ Historical formal note:
 | bug_id | class | severity | encounterability | status | first seen | commit | summary |
 |---|---|---|---|---|---|---|---|
 | [BUG-000-H](#bug-000-h-bug-history-seeded-empty-at-dv-bring-up) | H | non-datapath-refactor | directed-only (DV bring-up bookkeeping) | fixed | DV bring-up | `pending` | BUG_HISTORY.md seeded empty at DV bring-up so the ledger lints clean before any real RTL/harness bug surfaces. |
-| [BUG-001-R](#bug-001-r-packer-word-order-reverses-dv-plan-msb-first-contract) | R | soft error | common (single full DMA word) | open | B002 dual-debug smoke | `pending` | Packer inserts OPQ words LSB-first while `DV_PLAN.md` section 3.2 requires MSB-first. |
+| [BUG-001-R](#bug-001-r-packer-word-order-reverses-dv-plan-msb-first-contract) | H | soft error | common (single full DMA word) | fixed | B002 dual-debug smoke | `pending` | TB scoreboard and docs expected MSB-first while RTL/prototype pack LSB-first. |
 
 ## 2026-05-10
 
@@ -57,26 +57,36 @@ Historical formal note:
     and `scripts/cross_validate_dbg.py` rejects both scorecards with
     `summary.mismatches=1`
 - Root cause:
-  - `tb/DV_PLAN.md` section 3.2 requires eight 32-bit OPQ words to pack
-    MSB-first into the 256-bit AXI4 W beat
-  - `rtl/rdma_dma_packer.sv` currently inserts `word_data` at
+  - `tb/DV_PLAN.md` section 3.2 and `RTL_PLAN.md` section 4.1 incorrectly
+    described the 256-bit slot pack as MSB-first
+  - `tb/uvm/scoreboard.sv` mirrored that stale contract by placing expected
+    OPQ word N at `[255 - N*32 -: 32]`
+  - `rtl/rdma_dma_packer.sv` correctly inserts `word_data` at
     `[slot_index*OPQ_DATA_W +: OPQ_DATA_W]`, which places the first accepted
-    OPQ word in the least-significant 32-bit slot
+    OPQ word in the least-significant 32-bit slot and matches the
+    cosim-validated `tb_int/feb_swb_corun/sv/swb_rdma_dma_packer.sv`
+    prototype
 - Fix status:
-  - state: open; Phase B smoke closure is blocked until the RTL pack order or
-    written DV contract is reconciled and `B002` passes both debug levels
-  - mechanism: no repair in this commit; the UVM scoreboard remains
-    contract-based and continues to fail the reversed payload ordering
+  - state: fixed; Phase B smoke now uses the prototype-aligned LSB-first pack
+    contract and keeps RTL unchanged
+  - mechanism: `tb/uvm/scoreboard.sv` now packs expected slot N at
+    `[N*32 +: 32]`; `RTL_PLAN.md` section 4.1 and `tb/DV_PLAN.md` section 3.2
+    now document slot N at bits `[N*32+31 : N*32]`, slot 0 at LSB, slot 7 at
+    MSB, with EOP partial beats zero-padding empty high-numbered slots
   - before_fix_outcome: `make -C rdma_dma_engine/tb/uvm regress` fails
     `cross_validate_dbg.py` after both `B002` scorecards report one mismatch
-  - after_fix_outcome: pending
-  - potential_hazard: common; every full or partial DMA payload can be
-    host-visible with reversed 32-bit slot ordering relative to the contract
+  - after_fix_outcome: `make -C rdma_dma_engine/tb/uvm regress` passes
+    `B001` and `B002` under `DEBUG_LEVEL=1` and `DEBUG_LEVEL=2`; all four
+    scorecards report `summary.mismatches=0`
+  - potential_hazard: closed; remaining risk is normal Phase B coverage
+    backlog, not slot-order drift
   - Claude Opus 4.7 xhigh review decision: pending / not run
 - Runtime / coverage context:
   - first failing scoreboard sample is at `178 ns` in both debug modes
   - `DEBUG_LEVEL=2` emits all eight lineage sidecar entries, so the live
     blocker is functional payload ordering rather than DEBUG sidecar residual
+  - fixed smoke evidence: `B002` observes `opq=8 aw=1 w=1 b=1 job_done=1`
+    with `dbg1_mismatches=0` and `dbg2_mismatches=0`
 - Commit:
   - pending
 

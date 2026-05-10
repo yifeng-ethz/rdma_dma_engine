@@ -102,7 +102,7 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
 
     lin = canonical_lineage(item);
     expected_lineage.push_back(lin);
-    pack_data[255 - pack_slot*32 -: 32] = item.data;
+    pack_data[pack_slot*32 +: 32] = item.data;
     byte_base = pack_slot * 4;
     for (int unsigned i = 0; i < 4; i++)
       pack_strb[byte_base + i] = 1'b1;

@@ -101,10 +101,12 @@ into one or more `D` (directed) or `R` (constrained-random) cases.
 
 ### 3.2 Pack / unpack contract (BASIC)
 
-- 8 32-bit OPQ words → 1 256-bit AXI4 W beat, MSB-first into the slot
-  accumulator (matches `swb_rdma_dma_packer.sv` prototype semantics)
+- 8 32-bit OPQ words → 1 256-bit AXI4 W beat, LSB-first into the slot
+  pack: slot N occupies bits `[N*32+31 : N*32]`, slot 0 is at the LSB, and
+  slot 7 is at the MSB. This matches `swb_rdma_dma_packer.sv` prototype
+  semantics.
 - On OPQ EOE with non-empty partial accumulator, emit one 256-bit beat
-  with empty slots zero-padded; `last_in_event = 1`
+  with empty high-numbered slots zero-padded; `last_in_event = 1`
 - `bytes_in_word[5:0]` accurately reports the # of valid 32-bit slots
   in that beat (always 32 except possibly the EOE-flush beat)
 

@@ -108,9 +108,11 @@ module rdma_dma_engine #(
 - Input: 32b `opq_data`, `opq_valid`, `opq_sop`, `opq_eop`.
 - Output: 256b `data`, `valid`, `last_in_event`, `bytes_in_word[5:0]` (always
   32 except possibly the last beat of an event).
-- Behavior: latches 8 incoming 32b words MSB-first, emits one 256b beat
-  every 8 valid inputs. On `opq_eop`, immediately emit the partial 256b
-  with zero-padding for empty slots and `last_in_event=1`.
+- Behavior: latches 8 incoming 32b words LSB-first into the slot pack:
+  slot N occupies bits `[N*32+31 : N*32]`, slot 0 is at the LSB, and slot 7
+  is at the MSB. Emits one 256b beat every 8 valid inputs. On `opq_eop`,
+  immediately emit the partial 256b accumulator with zero-padding for empty
+  high-numbered slots and `last_in_event=1`.
 - No frame-format requirements. No skipping. Pure store-and-forward.
 
 Conservation invariant (proven by unit TB):
