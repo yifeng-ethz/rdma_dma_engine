@@ -16,6 +16,7 @@ package rdma_dma_engine_pkg;
   localparam int unsigned RDMA_DMA_DATA_W = 256;
   localparam int unsigned RDMA_DMA_BYTES = RDMA_DMA_DATA_W / 8;
   localparam int unsigned RDMA_DMA_OPQ_PER_BEAT = RDMA_DMA_DATA_W / 32;
+  localparam int unsigned RDMA_DMA_MAX_BURST_BEATS = 16;
 
   localparam int unsigned RDMA_DMA_ST_EOE = 0;
   localparam int unsigned RDMA_DMA_ST_FULL = 1;
@@ -3547,6 +3548,176 @@ package rdma_dma_engine_pkg;
       check_conservation(tag);
     endtask
 
+    task run_profile_awlen_metric_case(
+      input string tag,
+      input int unsigned opq_words,
+      input int unsigned idle_after_each,
+      input int unsigned wready_lag,
+      input int unsigned bvalid_lag,
+      input int unsigned min_avg_awlen_milli,
+      input int unsigned max_avg_awlen_milli,
+      input int unsigned min_util_milli,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      int unsigned aw_count_local;
+      int unsigned awlen_sum;
+      int unsigned avg_awlen_milli;
+      int unsigned util_milli;
+      int unsigned w_before;
+      int unsigned w_delta;
+      bit [63:0] span_bytes;
+
+      stop_monitor = 1'b0;
+      aw_count_local = 0;
+      awlen_sum = 0;
+      w_before = env.scb.w_count;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.m_axi_awvalid && vif.m_axi_awready) begin
+              aw_count_local++;
+              awlen_sum += vif.m_axi_awlen;
+            end
+          end
+        end
+      join_none
+
+      span_bytes = 64'(opq_words) * 64'd4 + 64'h1000;
+      span_bytes = (span_bytes + 64'hfff) & ~64'hfff;
+      run_dma_job(.tag(tag), .seg0_span(span_bytes),
+                  .opq_words(opq_words), .send_eoe(1'b1),
+                  .wready_lag(wready_lag), .bvalid_lag(bvalid_lag),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .idle_after_each(idle_after_each),
+                  .timeout_cycles(900000));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+
+      if (aw_count_local == 0) begin
+        `uvm_error(tag, "no AW handshakes observed")
+      end else begin
+        avg_awlen_milli = (awlen_sum * 1000) / aw_count_local;
+        if ((avg_awlen_milli < min_avg_awlen_milli) ||
+            (avg_awlen_milli > max_avg_awlen_milli))
+          `uvm_error(tag, $sformatf(
+            "avg AWLEN got=%0d/1000 expected in [%0d,%0d]",
+            avg_awlen_milli, min_avg_awlen_milli, max_avg_awlen_milli))
+        w_delta = env.scb.w_count - w_before;
+        util_milli = (w_delta * 1000) / (aw_count_local * RDMA_DMA_MAX_BURST_BEATS);
+        if (util_milli < min_util_milli)
+          `uvm_error(tag, $sformatf("burst util got=%0d/1000 expected >=%0d/1000",
+                                    util_milli, min_util_milli))
+      end
+      check_conservation(tag);
+    endtask
+
+    task run_profile_fifo_pressure_case(
+      input string tag,
+      input int unsigned opq_words,
+      input int unsigned wready_lag,
+      input int unsigned bvalid_lag,
+      input int unsigned min_max_level,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      int unsigned max_level;
+      int unsigned high_samples;
+      bit [63:0] span_bytes;
+
+      stop_monitor = 1'b0;
+      max_level = 0;
+      high_samples = 0;
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.dbg1_fifo_level > max_level)
+              max_level = vif.dbg1_fifo_level;
+            if (vif.dbg1_fifo_level >= min_max_level[8:0])
+              high_samples++;
+          end
+        end
+      join_none
+
+      span_bytes = 64'(opq_words) * 64'd4 + 64'h1000;
+      span_bytes = (span_bytes + 64'hfff) & ~64'hfff;
+      run_dma_job(.tag(tag), .seg0_span(span_bytes),
+                  .opq_words(opq_words), .send_eoe(1'b1),
+                  .wready_lag(wready_lag), .bvalid_lag(bvalid_lag),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(900000));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+
+      if (max_level < min_max_level)
+        `uvm_error(tag, $sformatf("fifo max_level got=%0d expected >=%0d",
+                                  max_level, min_max_level))
+      if (high_samples == 0)
+        `uvm_error(tag, "fifo pressure monitor saw no high-occupancy samples")
+      check_conservation(tag);
+    endtask
+
+    task run_profile_counter_clear_conservation_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_dma_job(.tag({tag, "_pre_clear"}), .opq_words(64),
+                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+      if ((vif.cnt_input_w == 32'd0) || (vif.cnt_bytes_written == 32'd0))
+        `uvm_error(tag, "pre-clear counters did not accumulate")
+      pulse_clear_counters();
+      check_u32_equal(tag, "cnt_input_w after clear", vif.cnt_input_w, 32'd0);
+      check_u32_equal(tag, "cnt_bytes_written after clear",
+                      vif.cnt_bytes_written, 32'd0);
+      check_u32_equal(tag, "cnt_halt after clear", vif.cnt_halt, 32'd0);
+      check_u32_equal(tag, "cnt_eoe_observed after clear",
+                      vif.cnt_eoe_observed, 32'd0);
+      run_dma_job(.tag({tag, "_post_clear"}), .opq_words(64),
+                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .sequence_no(sequence_no + 32'd1),
+                  .timeout_cycles(300000));
+      check_conservation(tag);
+    endtask
+
+    task run_profile_halt_one_of_five_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [31:0] halt_before;
+      bit [31:0] halt_after;
+
+      for (int unsigned idx = 0; idx < 2; idx++) begin
+        run_dma_job(.tag($sformatf("%s_clean%0d", tag, idx)),
+                    .opq_words(16), .send_eoe(1'b1),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx),
+                    .timeout_cycles(300000));
+      end
+      halt_before = vif.cnt_halt;
+      run_halt_count_job(.tag({tag, "_halt"}), .dropped_words(16),
+                         .sqe_id(sqe_id + 16'd2),
+                         .sequence_no(sequence_no + 32'd2));
+      halt_after = vif.cnt_halt;
+      if (halt_after <= halt_before)
+        `uvm_error(tag, "halt job did not increment cnt_halt")
+      for (int unsigned idx = 3; idx < 5; idx++) begin
+        run_dma_job(.tag($sformatf("%s_clean%0d", tag, idx)),
+                    .opq_words(16), .send_eoe(1'b1),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx),
+                    .timeout_cycles(300000));
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd5);
+      check_conservation(tag);
+    endtask
+
     task run_halt_count_job(
       input string tag,
       input int unsigned dropped_words = 10,
@@ -5395,6 +5566,126 @@ package rdma_dma_engine_pkg;
                                           .variable_lag(1'b1),
                                           .sqe_id(sqe_id),
                                           .sequence_no(num));
+            end
+            default: begin
+              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+            end
+          endcase
+          return;
+        end
+        if (num <= 32) begin
+          case (num)
+            17: begin
+              run_profile_awlen_metric_case(.tag(id), .opq_words(4096),
+                                            .idle_after_each(0),
+                                            .wready_lag(0), .bvalid_lag(1),
+                                            .min_avg_awlen_milli(14000),
+                                            .max_avg_awlen_milli(15000),
+                                            .min_util_milli(900),
+                                            .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            end
+            18: begin
+              run_profile_awlen_metric_case(.tag(id), .opq_words(64),
+                                            .idle_after_each(1),
+                                            .wready_lag(0), .bvalid_lag(1),
+                                            .min_avg_awlen_milli(7000),
+                                            .max_avg_awlen_milli(8000),
+                                            .min_util_milli(500),
+                                            .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            end
+            19: begin
+              run_profile_awlen_metric_case(.tag(id), .opq_words(8),
+                                            .idle_after_each(9),
+                                            .wready_lag(0), .bvalid_lag(1),
+                                            .min_avg_awlen_milli(0),
+                                            .max_avg_awlen_milli(2000),
+                                            .min_util_milli(60),
+                                            .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            end
+            20: begin
+              run_profile_fifo_pressure_case(.tag(id), .opq_words(4096),
+                                             .wready_lag(8),
+                                             .bvalid_lag(32),
+                                             .min_max_level(RDMA_DMA_MAX_BURST_BEATS),
+                                             .sqe_id(sqe_id),
+                                             .sequence_no(num));
+            end
+            21: begin
+              run_profile_awlen_metric_case(.tag(id), .opq_words(2048),
+                                            .idle_after_each(0),
+                                            .wready_lag(0), .bvalid_lag(1),
+                                            .min_avg_awlen_milli(14000),
+                                            .max_avg_awlen_milli(15000),
+                                            .min_util_milli(800),
+                                            .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            end
+            22: begin
+              run_profile_awlen_metric_case(.tag(id), .opq_words(4096),
+                                            .idle_after_each(0),
+                                            .wready_lag(0), .bvalid_lag(1),
+                                            .min_avg_awlen_milli(14000),
+                                            .max_avg_awlen_milli(15000),
+                                            .min_util_milli(900),
+                                            .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            end
+            23: begin
+              run_profile_single_load_case(.tag(id), .opq_words(4096),
+                                           .idle_after_each(1),
+                                           .wready_lag(0), .bvalid_lag(1),
+                                           .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            24: begin
+              run_profile_multi_event_case(.tag(id), .event_count(512),
+                                           .words_per_event(8),
+                                           .gap_cycles(0), .bvalid_lag(1),
+                                           .wready_lag(0), .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            25: begin
+              run_profile_job_stream_case(.tag(id), .job_count(64),
+                                          .words_per_job(128),
+                                          .two_segment(1'b0),
+                                          .mixed_span(1'b1),
+                                          .random_sqe(1'b0),
+                                          .gap_cycles(0),
+                                          .variable_lag(1'b1),
+                                          .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            26: begin
+              run_halt_count_job(.tag(id), .dropped_words(32),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            27: begin
+              run_profile_counter_clear_conservation_case(.tag(id),
+                                                          .sqe_id(sqe_id),
+                                                          .sequence_no(num));
+            end
+            28: begin
+              run_halt_count_job(.tag(id), .dropped_words(100),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            29: begin
+              run_halt_count_job(.tag(id), .dropped_words(16),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            30: begin
+              run_halt_count_job(.tag(id), .dropped_words(64),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            31: begin
+              run_fifo_recovery_after_halt_case(.tag(id), .sqe_id(sqe_id),
+                                                .sequence_no(num));
+            end
+            32: begin
+              run_profile_halt_one_of_five_case(.tag(id), .sqe_id(sqe_id),
+                                                .sequence_no(num));
             end
             default: begin
               run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
