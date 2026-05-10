@@ -1,0 +1,310 @@
+{
+  "report_title": "rdma_dma_engine Phase B UVM smoke",
+  "dut_name": "rdma_dma_engine",
+  "date": "2026-05-10",
+  "rtl_variant": "DEBUG_LEVEL=1/2 dual-env smoke",
+  "seed": 1,
+  "signoff_scope": {
+    "regression": "make -C tb/uvm regress",
+    "merged_ucdb": "tb/uvm/cov_after/rdma_dma_engine_smoke_merged.ucdb",
+    "case_ucdb_B001": "tb/uvm/cov_after/B001_dual_debug_merged.ucdb",
+    "case_ucdb_B002": "tb/uvm/cov_after/B002_dual_debug_merged.ucdb",
+    "scorecards": "tb/uvm/cov_after/dbg{1,2}/{B001,B002}.scorecard.json",
+    "logs": "tb/uvm/logs/dbg{1,2}/{B001,B002}.log"
+  },
+  "non_claims": [
+    "This is a red smoke dashboard, not Phase B closure.",
+    "B001 passes under DEBUG_LEVEL=1 and DEBUG_LEVEL=2.",
+    "B002 is blocked by BUG-001-R: observed WDATA is 0xb0020007...b0020000 while the DV_PLAN section 3.2 MSB-first reference is 0xb0020000...b0020007.",
+    "EDGE, PROF, ERROR, CROSS, bucket_frame, and all_buckets_frame evidence remains pending."
+  ],
+  "failed_cases": [
+    {
+      "case_id": "B002",
+      "reason": "WDATA slot ordering mismatch against DV_PLAN section 3.2"
+    }
+  ],
+  "implementation_summary": {
+    "implemented_count": 2,
+    "unimplemented_count": 510,
+    "catalog_backlog_count": 510,
+    "stale_artifact_without_engine_marker_count": 0
+  },
+  "totals": {
+    "planned_cases": 512,
+    "evidenced_cases": 2,
+    "excluded_cases": 0,
+    "merged_total_code_coverage": {
+      "stmt": {"pct": 62.97},
+      "branch": {"pct": 30.43},
+      "cond": {"pct": 15.97},
+      "expr": {"pct": 3.94},
+      "fsm_state": {"pct": 0.00},
+      "fsm_trans": {"pct": 0.00},
+      "toggle": {"pct": 2.96}
+    },
+    "functional_coverage": {
+      "pct": 0.39,
+      "evidenced": 2,
+      "planned": 512
+    }
+  },
+  "bucket_summary": [
+    {
+      "bucket": "BASIC",
+      "planned_cases": 128,
+      "promoted_cases": 2,
+      "evidenced_cases": 2,
+      "merged_bucket_total": {
+        "stmt": {"pct": 62.97},
+        "branch": {"pct": 30.43},
+        "cond": {"pct": 15.97},
+        "expr": {"pct": 3.94},
+        "fsm_state": {"pct": 0.00},
+        "fsm_trans": {"pct": 0.00},
+        "toggle": {"pct": 2.96}
+      },
+      "functional_coverage": {
+        "pct": 1.56,
+        "evidenced": 2,
+        "planned": 128
+      }
+    },
+    {
+      "bucket": "EDGE",
+      "planned_cases": 128,
+      "promoted_cases": 0,
+      "evidenced_cases": 0,
+      "merged_bucket_total": {},
+      "functional_coverage": {"pct": 0.00, "evidenced": 0, "planned": 128}
+    },
+    {
+      "bucket": "PROF",
+      "planned_cases": 128,
+      "promoted_cases": 0,
+      "evidenced_cases": 0,
+      "merged_bucket_total": {},
+      "functional_coverage": {"pct": 0.00, "evidenced": 0, "planned": 128}
+    },
+    {
+      "bucket": "ERROR",
+      "planned_cases": 128,
+      "promoted_cases": 0,
+      "evidenced_cases": 0,
+      "merged_bucket_total": {},
+      "functional_coverage": {"pct": 0.00, "evidenced": 0, "planned": 128}
+    }
+  ],
+  "buckets": {
+    "BASIC": {
+      "planned_cases": 128,
+      "evidenced_cases": 2,
+      "merged_bucket_total": {
+        "stmt": {"pct": 62.97},
+        "branch": {"pct": 30.43},
+        "cond": {"pct": 15.97},
+        "expr": {"pct": 3.94},
+        "fsm_state": {"pct": 0.00},
+        "fsm_trans": {"pct": 0.00},
+        "toggle": {"pct": 2.96}
+      },
+      "merge_trace": [
+        {
+          "step": 1,
+          "case_id": "B001",
+          "full_case_id": "B001",
+          "merged_total_after_case": {
+            "stmt": {"pct": 38.17},
+            "branch": {"pct": 20.42},
+            "cond": {"pct": 6.62},
+            "expr": {"pct": 1.47},
+            "fsm_state": {"pct": 0.00},
+            "fsm_trans": {"pct": 0.00},
+            "toggle": {"pct": 0.30}
+          }
+        },
+        {
+          "step": 2,
+          "case_id": "B002",
+          "full_case_id": "B002",
+          "merged_total_after_case": {
+            "stmt": {"pct": 62.97},
+            "branch": {"pct": 30.43},
+            "cond": {"pct": 15.97},
+            "expr": {"pct": 3.94},
+            "fsm_state": {"pct": 0.00},
+            "fsm_trans": {"pct": 0.00},
+            "toggle": {"pct": 2.96}
+          }
+        }
+      ],
+      "cases": [
+        {
+          "full_case_id": "B001",
+          "case_id": "B001",
+          "bucket": "BASIC",
+          "method": "D",
+          "implemented": true,
+          "passed": true,
+          "implementation_mode": "uvm_dual_debug_smoke",
+          "build_tag": "dual_debug",
+          "build_tag_lower": "dual_debug",
+          "isolated_effort": "smoke",
+          "observed_txn": 0,
+          "scenario": "Reset plus idle defaults under DEBUG_LEVEL=1 and DEBUG_LEVEL=2.",
+          "primary_checks": "No OPQ, AW, W, B, or job_done activity; both scorecards report mismatches=0.",
+          "contract_anchor": "tb/DV_BASIC.md B001; tb/DV_HARNESS.md dual-env reset/default path",
+          "standalone_coverage": {
+            "stmt": {"pct": 38.17},
+            "branch": {"pct": 20.42},
+            "cond": {"pct": 6.62},
+            "expr": {"pct": 1.47},
+            "fsm_state": {"pct": 0.00},
+            "fsm_trans": {"pct": 0.00},
+            "toggle": {"pct": 0.30}
+          },
+          "bucket_merged_total_after_case": {
+            "stmt": {"pct": 38.17},
+            "branch": {"pct": 20.42},
+            "cond": {"pct": 6.62},
+            "expr": {"pct": 1.47},
+            "fsm_state": {"pct": 0.00},
+            "fsm_trans": {"pct": 0.00},
+            "toggle": {"pct": 0.30}
+          },
+          "log_summary": {
+            "dbg1_mismatches": 0,
+            "dbg2_mismatches": 0,
+            "merged_ucdb": "tb/uvm/cov_after/B001_dual_debug_merged.ucdb"
+          }
+        },
+        {
+          "full_case_id": "B002",
+          "case_id": "B002",
+          "bucket": "BASIC",
+          "method": "D",
+          "implemented": true,
+          "passed": false,
+          "implementation_mode": "uvm_dual_debug_smoke",
+          "build_tag": "dual_debug",
+          "build_tag_lower": "dual_debug",
+          "isolated_effort": "smoke",
+          "observed_txn": 1,
+          "scenario": "Single job, eight OPQ hit words, one EOE, one 256-bit AXI4 W beat.",
+          "primary_checks": "AXI AW/W/B and job_done observed; scoreboard rejects WDATA slot ordering.",
+          "contract_anchor": "tb/DV_BASIC.md B002; tb/DV_PLAN.md section 3.2 MSB-first pack contract",
+          "standalone_coverage": {
+            "stmt": {"pct": 70.23},
+            "branch": {"pct": 35.05},
+            "cond": {"pct": 23.33},
+            "expr": {"pct": 44.00},
+            "fsm_state": {"pct": 85.71},
+            "fsm_trans": {"pct": 50.00},
+            "toggle": {"pct": 7.26}
+          },
+          "isolated_cov_per_txn": {
+            "stmt": {"pct": 70.23},
+            "branch": {"pct": 35.05},
+            "cond": {"pct": 23.33},
+            "expr": {"pct": 44.00},
+            "fsm_state": {"pct": 85.71},
+            "fsm_trans": {"pct": 50.00},
+            "toggle": {"pct": 7.26}
+          },
+          "bucket_gain_by_case": {
+            "stmt": {"pct": 24.80},
+            "branch": {"pct": 10.01},
+            "cond": {"pct": 9.35},
+            "expr": {"pct": 2.47},
+            "fsm_state": {"pct": 0.00},
+            "fsm_trans": {"pct": 0.00},
+            "toggle": {"pct": 2.66}
+          },
+          "bucket_merged_total_after_case": {
+            "stmt": {"pct": 62.97},
+            "branch": {"pct": 30.43},
+            "cond": {"pct": 15.97},
+            "expr": {"pct": 3.94},
+            "fsm_state": {"pct": 0.00},
+            "fsm_trans": {"pct": 0.00},
+            "toggle": {"pct": 2.96}
+          },
+          "bucket_gain_per_txn": {
+            "stmt": {"pct": 24.80},
+            "branch": {"pct": 10.01},
+            "cond": {"pct": 9.35},
+            "expr": {"pct": 2.47},
+            "fsm_state": {"pct": 0.00},
+            "fsm_trans": {"pct": 0.00},
+            "toggle": {"pct": 2.66}
+          },
+          "log_summary": {
+            "opq": 8,
+            "aw": 1,
+            "w": 1,
+            "b": 1,
+            "job_done": 1,
+            "dbg1_mismatches": 1,
+            "dbg2_mismatches": 1,
+            "got_wdata": "0xb0020007b0020006b0020005b0020004b0020003b0020002b0020001b0020000",
+            "expected_wdata": "0xb0020000b0020001b0020002b0020003b0020004b0020005b0020006b0020007",
+            "merged_ucdb": "tb/uvm/cov_after/B002_dual_debug_merged.ucdb"
+          }
+        }
+      ]
+    },
+    "EDGE": {
+      "planned_cases": 128,
+      "evidenced_cases": 0,
+      "merged_bucket_total": {},
+      "merge_trace": [],
+      "cases": []
+    },
+    "PROF": {
+      "planned_cases": 128,
+      "evidenced_cases": 0,
+      "merged_bucket_total": {},
+      "merge_trace": [],
+      "cases": []
+    },
+    "ERROR": {
+      "planned_cases": 128,
+      "evidenced_cases": 0,
+      "merged_bucket_total": {},
+      "merge_trace": [],
+      "cases": []
+    }
+  },
+  "signoff_runs": [
+    {
+      "run_id": "rdma_dma_engine_dual_debug_smoke",
+      "kind": "isolated",
+      "build_tag": "dual_debug",
+      "bucket": "BASIC",
+      "sequence_name": "make -C tb/uvm regress",
+      "case_count": 2,
+      "effort": "smoke",
+      "iter_cap": 1,
+      "payload_cap": 8,
+      "ucdb": "tb/uvm/cov_after/rdma_dma_engine_smoke_merged.ucdb",
+      "code_coverage": {
+        "stmt": {"pct": 62.97},
+        "branch": {"pct": 30.43},
+        "cond": {"pct": 15.97},
+        "expr": {"pct": 3.94},
+        "fsm_state": {"pct": 0.00},
+        "fsm_trans": {"pct": 0.00},
+        "toggle": {"pct": 2.96}
+      },
+      "cross_summary": {
+        "txns": 2,
+        "pct": 50.0,
+        "queued_overlap": 0,
+        "counter_checks_failed": 2,
+        "unexpected_outputs": 0,
+        "curve": "txn=1 case=B001 seq=reset pct=50.0 delta_bins=1 reason=idle_defaults; txn=2 case=B002 seq=single_job pct=50.0 delta_bins=0 reason=WDATA_mismatch"
+      }
+    }
+  ],
+  "random_cases": []
+}
