@@ -53,6 +53,9 @@ package axi4_write_pkg;
     bit [1:0] bresp;
     int signed bresp_error_index;
     bit [1:0] bresp_default;
+    bit [3:0] bid_value;
+    int unsigned spurious_b_idle_cycles;
+    int unsigned spurious_b_during_w_cycles;
 
     function new(string name = "axi4_write_cfg");
       super.new(name);
@@ -62,6 +65,9 @@ package axi4_write_pkg;
       bresp = AXI_RESP_OKAY;
       bresp_error_index = -1;
       bresp_default = AXI_RESP_OKAY;
+      bid_value = 4'h0;
+      spurious_b_idle_cycles = 0;
+      spurious_b_during_w_cycles = 0;
     endfunction
   endclass
 
