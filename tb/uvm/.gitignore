@@ -1,0 +1,11 @@
+build/
+cov_after/
+logs/
+REPORT/
+*.ucdb
+*.wlf
+transcript
+vsim_stacktrace.vstf
+__pycache__/
+*.pyc
+
