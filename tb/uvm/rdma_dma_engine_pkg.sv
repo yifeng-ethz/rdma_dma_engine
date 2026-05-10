@@ -1674,6 +1674,208 @@ package rdma_dma_engine_pkg;
                       32'(slot_words * 4));
     endtask
 
+    task run_packer_full_then_slot1_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      int unsigned w_count_local;
+      bit [31:0] first_wstrb;
+      bit [31:0] second_wstrb;
+      bit first_wlast;
+      bit second_wlast;
+
+      stop_monitor = 1'b0;
+      w_count_local = 0;
+      first_wstrb = 32'h0000_0000;
+      second_wstrb = 32'h0000_0000;
+      first_wlast = 1'b0;
+      second_wlast = 1'b0;
+
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n !== 1'b1)
+              continue;
+            if (vif.m_axi_wvalid && vif.m_axi_wready) begin
+              w_count_local++;
+              if (w_count_local == 1) begin
+                first_wstrb = vif.m_axi_wstrb;
+                first_wlast = vif.m_axi_wlast;
+              end else if (w_count_local == 2) begin
+                second_wstrb = vif.m_axi_wstrb;
+                second_wlast = vif.m_axi_wlast;
+              end
+            end
+          end
+        end
+      join_none
+
+      run_dma_job(.tag(tag), .opq_words(9), .send_eoe(1'b1),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (w_count_local != 2)
+        `uvm_error(tag, $sformatf("W count got=%0d expected=2",
+                                  w_count_local))
+      if (first_wstrb !== 32'hffff_ffff)
+        `uvm_error(tag, $sformatf("first WSTRB got=0x%08h expected=0xffffffff",
+                                  first_wstrb))
+      if (first_wlast !== 1'b0)
+        `uvm_error(tag, "first full beat unexpectedly asserted WLAST")
+      if (second_wstrb !== 32'h0000_000f)
+        `uvm_error(tag, $sformatf("second WSTRB got=0x%08h expected=0x0000000f",
+                                  second_wstrb))
+      if (second_wlast !== 1'b1)
+        `uvm_error(tag, "slot1 EOE flush did not assert WLAST")
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd9);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd36);
+      check_u32_equal(tag, "cnt_eoe_observed", vif.cnt_eoe_observed,
+                      32'd1);
+    endtask
+
+    task run_double_eoe_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd4, 32'd4, 32'd0, expected_status,
+                               status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 100;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0040_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(1, 1'b1, sequence_no, next_lineage_id);
+      wait_cycles(2);
+      pulse_zero_eoe();
+      env.axi_cfg.wready_lag = 0;
+      wait_for_done(300000);
+      wait_cycles(2);
+      check_u32_equal(tag, "job_event_count", vif.job_event_count, 32'd2);
+      check_u32_equal(tag, "cnt_eoe_observed", vif.cnt_eoe_observed,
+                      32'd2);
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd1);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd4);
+      env.axi_cfg.bvalid_lag = 1;
+    endtask
+
+    task run_zero_byte_eoe_idle_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_dma_job(.tag(tag), .opq_words(0), .send_eoe(1'b0),
+                  .zero_eoe(1'b1), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+      check_u32_equal(tag, "job_event_count", vif.job_event_count, 32'd1);
+      check_u32_equal(tag, "cnt_eoe_observed", vif.cnt_eoe_observed,
+                      32'd1);
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd0);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd0);
+    endtask
+
+    task run_segment_boundary_edge_case(
+      input string tag,
+      input bit [63:0] seg0_addr,
+      input bit [63:0] seg0_span,
+      input bit [63:0] seg1_addr,
+      input bit [63:0] seg1_span,
+      input int unsigned opq_words,
+      input bit send_eoe,
+      input bit [31:0] expected_seg0,
+      input bit [31:0] expected_seg1,
+      input int unsigned expected_aw_count,
+      input bit check_seg1_aw,
+      input bit [63:0] expected_seg1_aw,
+      input bit check_last_aw,
+      input bit [63:0] expected_last_aw,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no,
+      input int unsigned idle_after_each = 0,
+      input int unsigned wready_lag = 0
+    );
+      run_aw_observed_job(.tag(tag), .obs_seg0_addr(seg0_addr),
+                          .obs_seg0_span(seg0_span),
+                          .obs_seg1_addr(seg1_addr),
+                          .obs_seg1_span(seg1_span),
+                          .obs_words(opq_words),
+                          .obs_send_eoe(send_eoe),
+                          .expected_aw_count(expected_aw_count),
+                          .expected_first_aw(seg0_addr),
+                          .check_seg1_aw(check_seg1_aw),
+                          .expected_seg1_aw(expected_seg1_aw),
+                          .check_last_aw(check_last_aw),
+                          .expected_last_aw(expected_last_aw),
+                          .obs_idle_after_each(idle_after_each),
+                          .obs_wready_lag(wready_lag),
+                          .sqe_id(sqe_id), .sequence_no(sequence_no),
+                          .timeout_cycles(500000));
+      check_u32_equal(tag, "job_seg0_bytes_written",
+                      vif.job_seg0_bytes_written, expected_seg0);
+      check_u32_equal(tag, "job_seg1_bytes_written",
+                      vif.job_seg1_bytes_written, expected_seg1);
+      check_status_bit(tag, "status[SEG_BOUNDARY_HIT]",
+                       RDMA_DMA_ST_SEG_BOUNDARY_HIT,
+                       expected_seg1 != 32'd0);
+      check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, send_eoe);
+      check_status_bit(tag, "status[FULL]", RDMA_DMA_ST_FULL, !send_eoe);
+    endtask
+
+    task run_exact_full_burst_eoe_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_aw_observed_job(.tag(tag), .obs_words(128),
+                          .obs_send_eoe(1'b1),
+                          .expected_aw_count(1),
+                          .expected_first_aw(64'h0000_0000_0010_0000),
+                          .check_first_awlen(1'b1),
+                          .expected_first_awlen(15),
+                          .sqe_id(sqe_id), .sequence_no(sequence_no));
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd128);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd512);
+      check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
+      check_status_bit(tag, "status[FULL]", RDMA_DMA_ST_FULL, 1'b0);
+    endtask
+
+    task run_eoe_after_full_burst_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_aw_observed_job(.tag(tag), .obs_words(129),
+                          .obs_send_eoe(1'b1),
+                          .expected_aw_count(2),
+                          .expected_first_aw(64'h0000_0000_0010_0000),
+                          .check_first_awlen(1'b1),
+                          .expected_first_awlen(15),
+                          .check_last_awlen(1'b1),
+                          .expected_last_awlen(0),
+                          .sqe_id(sqe_id), .sequence_no(sequence_no));
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd129);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd516);
+      check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
+      check_status_bit(tag, "status[FULL]", RDMA_DMA_ST_FULL, 1'b0);
+    endtask
+
     task run_halt_count_job(
       input string tag,
       input int unsigned dropped_words = 10,
@@ -2882,6 +3084,174 @@ package rdma_dma_engine_pkg;
               run_packer_flush_slot_case(.tag(id), .slot_words(num - 40),
                                          .sqe_id(sqe_id),
                                          .sequence_no(num));
+            end
+          endcase
+          return;
+        end
+        if (num <= 64) begin
+          case (num)
+            49: begin
+              run_packer_full_then_slot1_case(.tag(id), .sqe_id(sqe_id),
+                                              .sequence_no(num));
+            end
+            50: begin
+              run_double_eoe_case(.tag(id), .sqe_id(sqe_id),
+                                  .sequence_no(num));
+            end
+            51: begin
+              run_packer_flush_slot_case(.tag(id),
+                                         .slot_words(RDMA_DMA_OPQ_PER_BEAT),
+                                         .sqe_id(sqe_id),
+                                         .sequence_no(num));
+              check_u32_equal(id, "job_event_count", vif.job_event_count,
+                              32'd1);
+            end
+            52: begin
+              run_zero_byte_eoe_idle_case(.tag(id), .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            53: begin
+              run_segment_boundary_edge_case(.tag(id),
+                .seg0_addr(64'h0000_0000_0010_0000),
+                .seg0_span(64'h0000_0000_0000_1000),
+                .seg1_addr(64'h0000_0000_0020_0000),
+                .seg1_span(64'h0000_0000_0000_1000),
+                .opq_words(2048), .send_eoe(1'b0),
+                .expected_seg0(32'd4096), .expected_seg1(32'd4096),
+                .expected_aw_count(16), .check_seg1_aw(1'b1),
+                .expected_seg1_aw(64'h0000_0000_0020_0000),
+                .check_last_aw(1'b1),
+                .expected_last_aw(64'h0000_0000_0020_0e00),
+                .sqe_id(sqe_id), .sequence_no(num));
+            end
+            54: begin
+              run_segment_boundary_edge_case(.tag(id),
+                .seg0_addr(64'h0000_0000_0010_0000),
+                .seg0_span(64'h0000_0000_0000_1000),
+                .seg1_addr(64'h0000_0000_0020_0000),
+                .seg1_span(64'h0000_0000_0000_1000),
+                .opq_words(2048), .send_eoe(1'b0),
+                .expected_seg0(32'd4096), .expected_seg1(32'd4096),
+                .expected_aw_count(16), .check_seg1_aw(1'b1),
+                .expected_seg1_aw(64'h0000_0000_0020_0000),
+                .check_last_aw(1'b1),
+                .expected_last_aw(64'h0000_0000_0020_0e00),
+                .sqe_id(sqe_id), .sequence_no(num),
+                .idle_after_each(1));
+            end
+            55: begin
+              run_segment_boundary_edge_case(.tag(id),
+                .seg0_addr(64'h0000_0000_0010_0000),
+                .seg0_span(64'h0000_0000_0000_1000),
+                .seg1_addr(64'h0000_0000_0020_0000),
+                .seg1_span(64'h0000_0000_0000_1000),
+                .opq_words(53), .send_eoe(1'b1),
+                .expected_seg0(32'd212), .expected_seg1(32'd0),
+                .expected_aw_count(1), .check_seg1_aw(1'b0),
+                .expected_seg1_aw(64'h0000_0000_0020_0000),
+                .check_last_aw(1'b0),
+                .expected_last_aw(64'h0000_0000_0010_0000),
+                .sqe_id(sqe_id), .sequence_no(num));
+            end
+            56: begin
+              run_segment_boundary_edge_case(.tag(id),
+                .seg0_addr(64'h0000_0000_0010_0000),
+                .seg0_span(64'h0000_0000_0000_1000),
+                .seg1_addr(64'h0000_0000_0020_0000),
+                .seg1_span(64'h0000_0000_0000_1000),
+                .opq_words(1032), .send_eoe(1'b1),
+                .expected_seg0(32'd4096), .expected_seg1(32'd32),
+                .expected_aw_count(9), .check_seg1_aw(1'b1),
+                .expected_seg1_aw(64'h0000_0000_0020_0000),
+                .check_last_aw(1'b1),
+                .expected_last_aw(64'h0000_0000_0020_0000),
+                .sqe_id(sqe_id), .sequence_no(num));
+            end
+            57: begin
+              run_segment_boundary_edge_case(.tag(id),
+                .seg0_addr(64'h0000_0000_0010_0000),
+                .seg0_span(64'h0000_0000_0000_1000),
+                .seg1_addr(64'h0000_0000_0020_0000),
+                .seg1_span(64'h0000_0000_0000_1000),
+                .opq_words(2048), .send_eoe(1'b0),
+                .expected_seg0(32'd4096), .expected_seg1(32'd4096),
+                .expected_aw_count(16), .check_seg1_aw(1'b1),
+                .expected_seg1_aw(64'h0000_0000_0020_0000),
+                .check_last_aw(1'b1),
+                .expected_last_aw(64'h0000_0000_0020_0e00),
+                .sqe_id(sqe_id), .sequence_no(num),
+                .wready_lag(4));
+            end
+            58: begin
+              run_segment_boundary_edge_case(.tag(id),
+                .seg0_addr(64'h0000_0000_0010_0000),
+                .seg0_span(64'h0000_0000_0000_1000),
+                .seg1_addr(64'h0000_0000_0020_0000),
+                .seg1_span(64'h0000_0000_0000_1000),
+                .opq_words(2048), .send_eoe(1'b0),
+                .expected_seg0(32'd4096), .expected_seg1(32'd4096),
+                .expected_aw_count(16), .check_seg1_aw(1'b1),
+                .expected_seg1_aw(64'h0000_0000_0020_0000),
+                .check_last_aw(1'b1),
+                .expected_last_aw(64'h0000_0000_0020_0e00),
+                .sqe_id(sqe_id), .sequence_no(num));
+            end
+            59: begin
+              run_segment_boundary_edge_case(.tag(id),
+                .seg0_addr(64'h0000_0000_0010_0000),
+                .seg0_span(64'h0000_0000_0000_1000),
+                .seg1_addr(64'h0000_0000_0020_0000),
+                .seg1_span(64'h0000_0000_0000_1000),
+                .opq_words(1536), .send_eoe(1'b1),
+                .expected_seg0(32'd4096), .expected_seg1(32'd2048),
+                .expected_aw_count(12), .check_seg1_aw(1'b1),
+                .expected_seg1_aw(64'h0000_0000_0020_0000),
+                .check_last_aw(1'b1),
+                .expected_last_aw(64'h0000_0000_0020_0600),
+                .sqe_id(sqe_id), .sequence_no(num));
+            end
+            60: begin
+              run_segment_latency_case(.tag(id), .sqe_id(sqe_id));
+            end
+            61: begin
+              run_segment_boundary_edge_case(.tag(id),
+                .seg0_addr(64'h0000_0000_0010_0000),
+                .seg0_span(64'h0000_0000_0000_1000),
+                .seg1_addr(64'h0000_0000_0020_0000),
+                .seg1_span(64'h0000_0000_0000_1000),
+                .opq_words(2048), .send_eoe(1'b0),
+                .expected_seg0(32'd4096), .expected_seg1(32'd4096),
+                .expected_aw_count(16), .check_seg1_aw(1'b1),
+                .expected_seg1_aw(64'h0000_0000_0020_0000),
+                .check_last_aw(1'b1),
+                .expected_last_aw(64'h0000_0000_0020_0e00),
+                .sqe_id(sqe_id), .sequence_no(num),
+                .idle_after_each(2));
+            end
+            62: begin
+              run_segment_boundary_edge_case(.tag(id),
+                .seg0_addr(64'h0000_0000_ffff_f000),
+                .seg0_span(64'h0000_0000_0000_1000),
+                .seg1_addr(64'h0000_0001_0000_0000),
+                .seg1_span(64'h0000_0000_0000_1000),
+                .opq_words(2048), .send_eoe(1'b0),
+                .expected_seg0(32'd4096), .expected_seg1(32'd4096),
+                .expected_aw_count(16), .check_seg1_aw(1'b1),
+                .expected_seg1_aw(64'h0000_0001_0000_0000),
+                .check_last_aw(1'b1),
+                .expected_last_aw(64'h0000_0001_0000_0e00),
+                .sqe_id(sqe_id), .sequence_no(num));
+            end
+            63: begin
+              run_exact_full_burst_eoe_case(.tag(id), .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            end
+            64: begin
+              run_eoe_after_full_burst_case(.tag(id), .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            end
+            default: begin
+              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
             end
           endcase
           return;
