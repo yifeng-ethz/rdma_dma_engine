@@ -1479,6 +1479,201 @@ package rdma_dma_engine_pkg;
       next_lineage_id = lineage_id;
     endtask
 
+    task run_fifo_partial_fill_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd32, 32'd32, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 5000;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0040_0000,
+                           64'h0000_0000_0001_0000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(4, 1'b0, sequence_no, next_lineage_id);
+      wait_cycles(2);
+      if (vif.dbg1_fifo_level !== 9'd0)
+        `uvm_error(tag, $sformatf("fifo level got=%0d expected=0 before beat",
+                                  vif.dbg1_fifo_level))
+      if (vif.dbg1_packer_slot_idx !== 4'd4)
+        `uvm_error(tag, $sformatf("packer slot got=%0d expected=4",
+                                  vif.dbg1_packer_slot_idx))
+      drive_direct_words(4, 1'b1, sequence_no, next_lineage_id);
+      wait_cycles(2);
+      if (vif.dbg1_fifo_level !== 9'd1)
+        `uvm_error(tag, $sformatf("fifo level got=%0d expected=1 after beat",
+                                  vif.dbg1_fifo_level))
+      env.axi_cfg.wready_lag = 0;
+      wait_for_done(300000);
+      wait_cycles(2);
+      env.axi_cfg.bvalid_lag = 1;
+    endtask
+
+    task run_fifo_single_beat_dwell_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd32, 32'd32, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 5000;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0040_0000,
+                           64'h0000_0000_0001_0000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(8, 1'b1, sequence_no, next_lineage_id);
+      wait_cycles(2);
+      if (vif.dbg1_fifo_level !== 9'd1)
+        `uvm_error(tag, $sformatf("fifo dwell level got=%0d expected=1",
+                                  vif.dbg1_fifo_level))
+      env.axi_cfg.wready_lag = 0;
+      wait_for_done(300000);
+      wait_cycles(2);
+      if (vif.dbg1_fifo_level !== 9'd0)
+        `uvm_error(tag, $sformatf("fifo level got=%0d expected=0 after drain",
+                                  vif.dbg1_fifo_level))
+      env.axi_cfg.bvalid_lag = 1;
+    endtask
+
+    task run_fifo_fill_drain_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit check_fill,
+      input bit check_empty_after_done,
+      input bit [31:0] sequence_no
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      int unsigned accepted_words;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      accepted_words = 192 * RDMA_DMA_OPQ_PER_BEAT;
+      expect_simple_status_job(64'(accepted_words + 1) * 64'd4,
+                               32'(accepted_words + 1) * 32'd4,
+                               32'd0, expected_status, status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 50000;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0040_0000,
+                           64'h0000_0000_0001_0000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+
+      for (int unsigned beat_idx = 0; beat_idx < 191; beat_idx++) begin
+        drive_direct_words(RDMA_DMA_OPQ_PER_BEAT, 1'b0, sequence_no,
+                           next_lineage_id);
+      end
+      wait_cycles(2);
+      if (check_fill && (vif.dbg1_fifo_level !== 9'd191))
+        `uvm_error(tag, $sformatf("fifo level got=%0d expected=191",
+                                  vif.dbg1_fifo_level))
+      drive_direct_words(RDMA_DMA_OPQ_PER_BEAT, 1'b0, sequence_no,
+                         next_lineage_id);
+      wait_cycles(2);
+      if (check_fill) begin
+        if (vif.dbg1_fifo_level !== 9'd192)
+          `uvm_error(tag, $sformatf("fifo level got=%0d expected=192",
+                                    vif.dbg1_fifo_level))
+        if (vif.dbg1_fifo_almost_full !== 1'b1)
+          `uvm_error(tag, "fifo_almost_full did not assert after fill")
+      end
+
+      env.axi_cfg.wready_lag = 0;
+      for (int unsigned cycle = 0; cycle < 20000; cycle++) begin
+        @(posedge vif.clk);
+        if (vif.dbg1_fifo_almost_full === 1'b0)
+          break;
+      end
+      drive_direct_words(1, 1'b1, sequence_no, next_lineage_id);
+      wait_for_done(500000);
+      wait_cycles(2);
+      if (check_empty_after_done && (vif.dbg1_fifo_level !== 9'd0))
+        `uvm_error(tag, $sformatf("fifo level got=%0d expected=0 after drain",
+                                  vif.dbg1_fifo_level))
+      env.axi_cfg.bvalid_lag = 1;
+    endtask
+
+    task run_packer_flush_slot_case(
+      input string tag,
+      input int unsigned slot_words,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit stop_monitor;
+      bit saw_w;
+      bit [31:0] first_wstrb;
+      bit first_wlast;
+      int unsigned w_count_local;
+      bit [31:0] expected_strb;
+
+      stop_monitor = 1'b0;
+      saw_w = 1'b0;
+      first_wstrb = 32'h0000_0000;
+      first_wlast = 1'b0;
+      w_count_local = 0;
+      expected_strb = (slot_words == RDMA_DMA_OPQ_PER_BEAT) ?
+        32'hffff_ffff : ((32'h0000_0001 << (slot_words * 4)) - 32'd1);
+
+      fork
+        begin
+          while (!stop_monitor) begin
+            @(posedge vif.clk);
+            if (vif.reset_n !== 1'b1)
+              continue;
+            if (vif.m_axi_wvalid && vif.m_axi_wready) begin
+              w_count_local++;
+              if (!saw_w) begin
+                first_wstrb = vif.m_axi_wstrb;
+                first_wlast = vif.m_axi_wlast;
+                saw_w = 1'b1;
+              end
+            end
+          end
+        end
+      join_none
+
+      run_dma_job(.tag(tag), .opq_words(slot_words), .send_eoe(1'b1),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no));
+      stop_monitor = 1'b1;
+      wait_cycles(1);
+      if (!saw_w)
+        `uvm_error(tag, "no W beat observed for packer flush")
+      if (w_count_local != 1)
+        `uvm_error(tag, $sformatf("W count got=%0d expected=1",
+                                  w_count_local))
+      if (first_wstrb !== expected_strb)
+        `uvm_error(tag, $sformatf("WSTRB got=0x%08h expected=0x%08h",
+                                  first_wstrb, expected_strb))
+      if (first_wlast !== 1'b1)
+        `uvm_error(tag, "single flush beat did not assert WLAST")
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w,
+                      slot_words[31:0]);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'(slot_words * 4));
+    endtask
+
     task run_halt_count_job(
       input string tag,
       input int unsigned dropped_words = 10,
@@ -2642,6 +2837,51 @@ package rdma_dma_engine_pkg;
             end
             default: begin
               run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+            end
+          endcase
+          return;
+        end
+        if (num <= 48) begin
+          case (num)
+            33: begin
+              run_halt_count_job(.tag(id), .dropped_words(16),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            34: begin
+              run_halt_count_job(.tag(id), .dropped_words(1),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            35: begin
+              run_fifo_partial_fill_case(.tag(id), .sqe_id(sqe_id),
+                                         .sequence_no(num));
+            end
+            36: begin
+              run_fifo_single_beat_dwell_case(.tag(id), .sqe_id(sqe_id),
+                                              .sequence_no(num));
+            end
+            37: begin
+              run_fifo_fill_drain_case(.tag(id), .sqe_id(sqe_id),
+                                       .check_fill(1'b1),
+                                       .check_empty_after_done(1'b0),
+                                       .sequence_no(num));
+            end
+            38: begin
+              run_fifo_fill_drain_case(.tag(id), .sqe_id(sqe_id),
+                                       .check_fill(1'b0),
+                                       .check_empty_after_done(1'b1),
+                                       .sequence_no(num));
+            end
+            39: begin
+              run_halt_count_job(.tag(id), .dropped_words(1),
+                                 .sqe_id(sqe_id), .sequence_no(num));
+            end
+            40: begin
+              check_reset_defaults(id);
+            end
+            default: begin
+              run_packer_flush_slot_case(.tag(id), .slot_words(num - 40),
+                                         .sqe_id(sqe_id),
+                                         .sequence_no(num));
             end
           endcase
           return;
