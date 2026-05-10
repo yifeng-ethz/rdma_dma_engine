@@ -233,6 +233,47 @@ fitter.
 
 Default target: 250 MHz (SWB datapath clock). Sign-off at 275 MHz.
 
+### 8.1 Resource estimation (pre-fit)
+
+Pre-fit budget for the DEBUG_LEVEL=0 build, derived from the submodule
+list and the AXI4 / FIFO widths in §3 / §4. The acceptance band is
+`[-20%, +50%]` of these estimates; an actual outside this band requires
+a `[PATCH]` to this section with a written root cause, never a silent
+re-fit.
+
+Submodule contributions:
+
+| Submodule | ALMs | M20K | DSP | Justification |
+|---|---:|---:|---:|---|
+| `rdma_dma_packer.sv` | ~120 | 0 | 0 | 256-b accumulator (8 × 32-b slots), 3-bit slot index, EOE/last_in_event flop, `bytes_in_word` adder. ~256 flops + a small adder cone. |
+| `rdma_dma_data_fifo.sv` | ~60 | 4 | 0 | 256-b SCFIFO depth 256 + 8-bit sideband (`last_in_event`, `bytes_in_word[5:0]`, spare). 256×264 b ≈ 67 kbit ≈ 4 × M20K (each 20 kbit, 4 deep × 264 wide cascade). Read/write pointer + occupancy logic ~60 ALMs. |
+| `rdma_dma_writer.sv` | ~250 | 0 | 0 | 6-state FSM, two 64-bit segment-base registers, two 64-bit `bytes_left_seg` counters, 8-bit `awlen` sizer, `min(fifo_level, MAX_BURST_BEATS, beats_left_in_seg)` comparator (small), AW/W/B in-flight counters, byte-strobe generator. Plus first/last-event TS capture (2 × 64 b = 128 flops). |
+| `rdma_dma_engine.sv` | ~70 | 0 | 0 | Counter aggregation (`cnt_input_w`, `cnt_bytes_written`, `cnt_halt`, `cnt_eoe_observed` — four 32-b counters = 128 flops + adders), DEBUG_LEVEL=1 status taps, sidecar tie-off cone at DEBUG=0. |
+| **Sum (pre-fit)** | **~500** | **4** | **0** | |
+
+Add ~10 % budget for routing/control glue: **~550 ALMs**.
+
+`ALM_estimate = 550`
+`M20K_estimate = 4`
+`DSP_estimate = 0`
+
+Acceptance band:
+
+| Metric | Lower (-20 %) | Upper (+50 %) |
+|---|---:|---:|
+| ALMs  | 440 | 825 |
+| M20K  | 3   | 6   |
+| DSP   | 0   | 0   |
+
+Notes:
+- DSP_estimate = 0: all arithmetic in this IP is small adders /
+  comparators, no multiplies. Quartus must not infer DSP blocks.
+- M20K_estimate = 4 assumes the inferred SCFIFO. If Phase 2 swaps to
+  `altera_avalon_st_fifo`, the count may drop to 3 (the IP catalog FIFO
+  packs the sideband more tightly); update this section accordingly.
+- The DEBUG=1 build adds ~30 observation flops (per `doc/QUEUE_MATH.md`
+  §6). DEBUG=2 build is sim-only and does not count for synthesis.
+
 ## 9. Files
 
 ```
