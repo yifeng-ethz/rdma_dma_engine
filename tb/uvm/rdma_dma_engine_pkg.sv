@@ -1876,6 +1876,202 @@ package rdma_dma_engine_pkg;
       check_status_bit(tag, "status[FULL]", RDMA_DMA_ST_FULL, 1'b0);
     endtask
 
+    task run_eoe_during_aw_phase_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_aw_observed_job(.tag(tag), .obs_words(5),
+                          .obs_send_eoe(1'b1),
+                          .expected_aw_count(1),
+                          .expected_first_aw(64'h0000_0000_0010_0000),
+                          .check_first_awlen(1'b1),
+                          .expected_first_awlen(0),
+                          .obs_awready_lag(100),
+                          .sqe_id(sqe_id), .sequence_no(sequence_no));
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd5);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd20);
+      check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
+      check_status_bit(tag, "status[FULL]", RDMA_DMA_ST_FULL, 1'b0);
+    endtask
+
+    task run_program_phase_eoe_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+
+      expected_status = 16'h0000;
+      status_mask = single_seg_status_mask();
+      expected_status[RDMA_DMA_ST_EOE] = 1'b1;
+      expected_status[RDMA_DMA_ST_SEG_BOUNDARY_HIT] = 1'b1;
+      expect_simple_status_job(64'd4096, 32'd4096, 32'd0,
+                               expected_status, status_mask, sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0020_0000,
+                           64'h0000_0000_0000_1000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(1024, 1'b0, sequence_no, next_lineage_id);
+      for (int unsigned cycle = 0; cycle < 300000; cycle++) begin
+        @(posedge vif.clk);
+        if ((vif.dbg1_writer_state === 4'd1) &&
+            (vif.job_seg0_bytes_written === 32'd4096))
+          break;
+        if (cycle == 299999)
+          `uvm_fatal(tag, "seg1 PROGRAM state was not observed")
+      end
+      pulse_zero_eoe();
+      wait_for_done(300000);
+      wait_cycles(2);
+      check_u32_equal(tag, "job_event_count", vif.job_event_count, 32'd1);
+      check_u32_equal(tag, "cnt_eoe_observed", vif.cnt_eoe_observed,
+                      32'd1);
+      check_u32_equal(tag, "job_seg0_bytes_written",
+                      vif.job_seg0_bytes_written, 32'd4096);
+      check_u32_equal(tag, "job_seg1_bytes_written",
+                      vif.job_seg1_bytes_written, 32'd0);
+    endtask
+
+    task run_full_boundary_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no,
+      input bit send_eoe_at_full
+    );
+      run_aw_observed_job(.tag(tag), .obs_words(1024),
+                          .obs_send_eoe(send_eoe_at_full),
+                          .expected_aw_count(8),
+                          .expected_first_aw(64'h0000_0000_0010_0000),
+                          .check_first_awlen(1'b1),
+                          .expected_first_awlen(15),
+                          .check_last_awlen(1'b1),
+                          .expected_last_awlen(15),
+                          .sqe_id(sqe_id), .sequence_no(sequence_no));
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd1024);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd4096);
+      check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE,
+                       send_eoe_at_full);
+      check_status_bit(tag, "status[FULL]", RDMA_DMA_ST_FULL, 1'b1);
+    endtask
+
+    task run_align_error_no_write_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_dma_job(.tag(tag), .seg0_span(64'h0), .opq_words(0),
+                  .send_eoe(1'b0), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+      check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
+                       1'b1);
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd0);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd0);
+      if ((env.scb.aw_count != 0) || (env.scb.w_count != 0))
+        `uvm_error(tag, "ALIGN_ERR job unexpectedly issued AXI writes")
+    endtask
+
+    task run_two_job_one_cycle_after_done_case(
+      input string tag,
+      input bit [15:0] first_sqe_id,
+      input bit [15:0] second_sqe_id,
+      input bit [31:0] sequence_no
+    );
+      bit [15:0] expected_status;
+      bit [15:0] status_mask;
+      bit seen_done;
+
+      expected_status = single_seg_eoe_status();
+      status_mask = single_seg_status_mask();
+      expect_simple_status_job(64'd32, 32'd32, 32'd0,
+                               expected_status, status_mask, first_sqe_id);
+      expect_simple_status_job(64'd32, 32'd32, 32'd0,
+                               expected_status, status_mask, second_sqe_id);
+      env.axi_cfg.awready_lag = 0;
+      env.axi_cfg.wready_lag = 0;
+      env.axi_cfg.bvalid_lag = 1;
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           first_sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(8, 1'b1, sequence_no, next_lineage_id);
+      seen_done = 1'b0;
+      for (int unsigned cycle = 0; cycle < 300000; cycle++) begin
+        @(posedge vif.clk);
+        if (vif.job_done) begin
+          seen_done = 1'b1;
+          break;
+        end
+      end
+      if (!seen_done)
+        `uvm_fatal(tag, "first job_done was not observed")
+      @(posedge vif.clk);
+      drive_direct_job_req(64'h0000_0000_0030_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           second_sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(8, 1'b1, sequence_no + 32'd100, next_lineage_id);
+      wait_for_done(300000);
+      wait_cycles(2);
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'd2);
+      check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd16);
+      check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
+                      32'd64);
+    endtask
+
+    task run_two_jobs_with_gap_case(
+      input string tag,
+      input int unsigned gap_cycles,
+      input bit [15:0] first_sqe_id,
+      input bit [15:0] second_sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_dma_job(.tag({tag, "_job0"}), .opq_words(8), .send_eoe(1'b1),
+                  .sqe_id(first_sqe_id), .sequence_no(sequence_no));
+      if (vif.dbg1_writer_state !== 4'd0)
+        `uvm_error(tag, "writer was not idle after first job")
+      wait_cycles(gap_cycles);
+      if (vif.dbg1_writer_state !== 4'd0)
+        `uvm_error(tag, "writer did not remain idle through the gap")
+      run_dma_job(.tag({tag, "_job1"}), .opq_words(8), .send_eoe(1'b1),
+                  .sqe_id(second_sqe_id), .sequence_no(sequence_no + 32'd100));
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'd2);
+    endtask
+
+    task run_mixed_span_two_job_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_dma_job(.tag({tag, "_job0"}), .seg0_span(64'h1000),
+                  .opq_words(1024), .send_eoe(1'b0),
+                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .timeout_cycles(300000));
+      run_dma_job(.tag({tag, "_job1"}), .seg0_span(64'h4000),
+                  .opq_words(4096), .send_eoe(1'b0),
+                  .sqe_id(sqe_id + 16'd1),
+                  .sequence_no(sequence_no + 32'd100),
+                  .timeout_cycles(700000));
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'd2);
+      check_status_bit(tag, "status[FULL]", RDMA_DMA_ST_FULL, 1'b1);
+    endtask
+
     task run_halt_count_job(
       input string tag,
       input int unsigned dropped_words = 10,
@@ -3249,6 +3445,98 @@ package rdma_dma_engine_pkg;
             64: begin
               run_eoe_after_full_burst_case(.tag(id), .sqe_id(sqe_id),
                                             .sequence_no(num));
+            end
+            default: begin
+              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+            end
+          endcase
+          return;
+        end
+        if (num <= 80) begin
+          case (num)
+            65: begin
+              run_eoe_during_aw_phase_case(.tag(id), .sqe_id(sqe_id),
+                                           .sequence_no(num));
+            end
+            66: begin
+              run_program_phase_eoe_case(.tag(id), .sqe_id(sqe_id),
+                                         .sequence_no(num));
+            end
+            67: begin
+              run_full_boundary_case(.tag(id), .sqe_id(sqe_id),
+                                     .sequence_no(num),
+                                     .send_eoe_at_full(1'b0));
+            end
+            68: begin
+              run_align_error_no_write_case(.tag(id), .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            end
+            69: begin
+              run_full_boundary_case(.tag(id), .sqe_id(sqe_id),
+                                     .sequence_no(num),
+                                     .send_eoe_at_full(1'b0));
+            end
+            70: begin
+              run_full_boundary_case(.tag(id), .sqe_id(sqe_id),
+                                     .sequence_no(num),
+                                     .send_eoe_at_full(1'b1));
+            end
+            71: begin
+              run_two_job_one_cycle_after_done_case(
+                .tag(id), .first_sqe_id(sqe_id),
+                .second_sqe_id(sqe_id + 16'd1), .sequence_no(num));
+            end
+            72: begin
+              run_done_pulse_report_case(.tag(id), .sqe_id(sqe_id),
+                                         .check_report_hold(1'b0),
+                                         .check_req_overlap(1'b1));
+            end
+            73: begin
+              run_two_jobs_with_gap_case(.tag(id), .gap_cycles(0),
+                                         .first_sqe_id(16'h1234),
+                                         .second_sqe_id(16'h1234),
+                                         .sequence_no(num));
+            end
+            74: begin
+              run_two_jobs_with_gap_case(.tag(id), .gap_cycles(0),
+                                         .first_sqe_id(16'h0000),
+                                         .second_sqe_id(16'hffff),
+                                         .sequence_no(num));
+            end
+            75: begin
+              run_dma_job(.tag({id, "_job0"}), .opq_words(8),
+                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .sequence_no(num));
+              run_dma_job(.tag({id, "_job1"}), .opq_words(8),
+                          .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                          .sequence_no(num + 32'd100));
+              run_dma_job(.tag({id, "_job2"}), .opq_words(8),
+                          .send_eoe(1'b1), .sqe_id(sqe_id + 16'd2),
+                          .sequence_no(num + 32'd200));
+              check_u32_equal(id, "job_done_count", env.scb.job_done_count,
+                              32'd3);
+            end
+            76: begin
+              run_two_jobs_with_gap_case(.tag(id), .gap_cycles(1000),
+                                         .first_sqe_id(sqe_id),
+                                         .second_sqe_id(sqe_id + 16'd1),
+                                         .sequence_no(num));
+            end
+            77: begin
+              run_two_jobs_with_gap_case(.tag(id), .gap_cycles(0),
+                                         .first_sqe_id(sqe_id),
+                                         .second_sqe_id(sqe_id + 16'd1),
+                                         .sequence_no(num));
+            end
+            78: begin
+              run_mixed_span_two_job_case(.tag(id), .sqe_id(sqe_id),
+                                          .sequence_no(num));
+            end
+            79: begin
+              run_dbg1_w_remaining_case(.tag(id), .sqe_id(sqe_id));
+            end
+            80: begin
+              run_dbg1_aw_inflight_case(.tag(id), .sqe_id(sqe_id));
             end
             default: begin
               run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
