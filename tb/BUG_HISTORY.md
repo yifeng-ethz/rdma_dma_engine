@@ -50,8 +50,45 @@ Historical formal note:
 | [BUG-008-H](#bug-008-h-zero-latency-axi-completer-stretched-w-bursts) | H | non-datapath-refactor | directed-only (queue-math zero-latency throughput smoke) | fixed | Phase B B117 | `5119579` | The AXI completer deasserted WREADY between zero-lag W beats, stretching one 16-beat burst to 31 cycles. |
 | [BUG-009-H](#bug-009-h-halt-helper-restarted-debug2-lineage-inside-later-jobs) | H | non-datapath-refactor | directed-only (multi-job cross-validation after halt injection) | fixed | Phase B B125 | `26333c0` | The halt helper restarted DEBUG2 hit/source IDs instead of carrying the global OPQ lineage across a later job. |
 | [BUG-010-R](#bug-010-r-axi-aw-bursts-could-cross-4kb-pages-under-bvalid-latency) | R | soft error | occasional (legal long DMA spans with host B-channel latency) | fixed | Phase B P002 | `fc55718` | Writer burst sizing ignored the remaining bytes before the next 4KB page and could issue AWLEN=15 from 0x...0f00. |
+| [BUG-011-H](#bug-011-h-sparse-opq-sequence-idled-after-final-eoe-and-missed-job-done) | H | non-datapath-refactor | directed-only (sparse OPQ profile wait timing) | fixed | Phase B P007 | `pending` | The OPQ sequence inserted sparse idle after the final EOE item, so the test waited for job_done only after the one-cycle pulse had passed. |
 
 ## 2026-05-10
+
+### BUG-011-H: Sparse OPQ sequence idled after final EOE and missed job_done
+- First seen in:
+  - `make -C tb/uvm -j2 phase_b_dbg1 phase_b_dbg2 REGRESS_CASES="test_p001_phase_b:P001 ... test_p016_phase_b:P016"` on `2026-05-10`
+  - generated Phase B case `P007` under DEBUG_LEVEL=1 and DEBUG_LEVEL=2
+- Symptom:
+  - P007 timed out in both debug lanes while running a sparse OPQ profile with
+    `idle_after_each=9`
+  - temporary timeout instrumentation showed the DUT had already returned to
+    IDLE with `fifo=0`, `cnt_input_w=800`, `cnt_bytes_written=3200`,
+    `cnt_halt=0`, and `cnt_eoe_observed=1`
+- Root cause:
+  - `opq_axis_event_sequence` applied `idle_after_each` after every OPQ item,
+    including the final item carrying EOE
+  - `run_dma_job` starts its `job_done` wait after the blocking OPQ sequence
+    returns, so sparse cases could miss the writer's one-cycle `job_done`
+    pulse during the final post-EOE idle period even though the DUT completed
+    correctly
+- Fix status:
+  - state: fixed; sparse OPQ sequences now idle between words only
+  - mechanism: the sequence sets `item.idle_after=0` for the last generated
+    OPQ item while preserving the requested idle between earlier items
+  - before_fix_outcome: P007 timed out in both debug lanes after the DUT had
+    completed the 3200-byte transfer
+  - after_fix_outcome: focused P007 rerun passed in DEBUG_LEVEL=1 and
+    DEBUG_LEVEL=2 with `opq=800 aw=7 w=100 b=7 done=1 mismatches=0`;
+    `make -C tb/uvm cross_validate CASES="P007"` reported zero residual
+    mismatch
+  - potential_hazard: closed for generated sparse OPQ event sequences; later
+    PROF sparse cases remain part of the bucket regression
+  - Claude Opus 4.7 xhigh review decision: pending / not run
+- Runtime / coverage context:
+  - failing logs were captured at `tb/uvm/logs/dbg1/P007.log` and
+    `tb/uvm/logs/dbg2/P007.log`
+- Commit:
+  - `pending`
 
 ### BUG-010-R: AXI AW bursts could cross 4KB pages under BVALID latency
 - First seen in:

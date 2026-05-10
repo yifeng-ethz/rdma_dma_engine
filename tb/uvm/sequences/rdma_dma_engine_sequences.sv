@@ -34,7 +34,7 @@ class opq_axis_event_sequence extends uvm_sequence #(opq_axis_pkg::opq_axis_item
       item.hit_id = hit_id_base + idx + 1;
       item.source_ts = hit_id_base + idx + 1;
       item.sequence_no = sequence_no;
-      item.idle_after = idle_after_each;
+      item.idle_after = (idx + 1 == word_count) ? 0 : idle_after_each;
       start_item(item);
       finish_item(item);
     end
