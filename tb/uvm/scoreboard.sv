@@ -21,6 +21,8 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
   int unsigned job_done_count;
   int unsigned dbg1_sample_count;
   int unsigned dbg2_emit_count;
+  int unsigned ignored_opq_count;
+  int unsigned ignore_opq_countdown;
   int unsigned expected_byte_count;
   int unsigned current_aw_beats_remaining;
   bit saw_eoe;
@@ -82,6 +84,8 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
     job_done_count = 0;
     dbg1_sample_count = 0;
     dbg2_emit_count = 0;
+    ignored_opq_count = 0;
+    ignore_opq_countdown = 0;
     expected_byte_count = 0;
     current_aw_beats_remaining = 0;
     saw_eoe = 1'b0;
@@ -103,6 +107,31 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
 
   function void set_allow_non_okay_bresp(input bit allow_errors);
     allow_non_okay_bresp = allow_errors;
+  endfunction
+
+  function void ignore_next_opq(input int unsigned count);
+    ignore_opq_countdown += count;
+  endfunction
+
+  function bit drop_last_partial_opq();
+    int unsigned byte_base;
+    if (pack_slot == 0) begin
+      note_mismatch("cannot drop last modeled OPQ because partial packer model is empty");
+      return 1'b0;
+    end
+    pack_slot--;
+    byte_base = pack_slot * 4;
+    pack_data[pack_slot*32 +: 32] = 32'h0000_0000;
+    for (int unsigned i = 0; i < 4; i++)
+      pack_strb[byte_base + i] = 1'b0;
+    if (expected_lineage.size() != 0)
+      void'(expected_lineage.pop_back());
+    else
+      note_mismatch("cannot drop last modeled OPQ lineage because queue is empty");
+    if (expected_byte_count >= 4)
+      expected_byte_count -= 4;
+    ignored_opq_count++;
+    return 1'b1;
   endfunction
 
   function void expect_job(
@@ -136,8 +165,8 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
   function lineage_t canonical_lineage(input opq_axis_pkg::opq_axis_item item);
     lineage_t lin;
     lin.lane = (debug_level >= 2) ? item.lane : 4'h0;
-    lin.hit_id = (debug_level >= 2 && item.hit_id != 32'h0) ? item.hit_id : (opq_count + 1);
-    lin.source_ts = (debug_level >= 2 && item.source_ts != 64'h0) ? item.source_ts : (opq_count + 1);
+    lin.hit_id = (debug_level >= 2 && item.hit_id != 32'h0) ? item.hit_id : opq_count;
+    lin.source_ts = (debug_level >= 2 && item.source_ts != 64'h0) ? item.source_ts : opq_count;
     if (debug_level >= 2 && item.sequence_no != 32'h0) begin
       lin.sequence_no = item.sequence_no;
     end else if (item.data[31:24] == 8'h00 && item.data[23:8] != 16'h0000) begin
@@ -153,6 +182,13 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
     beat_t beat;
     int unsigned byte_base;
 
+    opq_count++;
+    if (ignore_opq_countdown != 0) begin
+      ignore_opq_countdown--;
+      ignored_opq_count++;
+      return;
+    end
+
     lin = canonical_lineage(item);
     expected_lineage.push_back(lin);
     pack_data[pack_slot*32 +: 32] = item.data;
@@ -160,7 +196,6 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
     for (int unsigned i = 0; i < 4; i++)
       pack_strb[byte_base + i] = 1'b1;
     pack_slot++;
-    opq_count++;
     expected_byte_count += 4;
     if (item.eoe)
       saw_eoe = 1'b1;
@@ -300,6 +335,8 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
       note_mismatch($sformatf("active AW burst residual beats=%0d", current_aw_beats_remaining));
     if (expected_jobs.size() != 0)
       note_mismatch($sformatf("expected job queue residual=%0d", expected_jobs.size()));
+    if (ignore_opq_countdown != 0)
+      note_mismatch($sformatf("ignored OPQ countdown residual=%0d", ignore_opq_countdown));
     if (debug_level >= 2 && dbg2_emit_count != expected_lineage.size())
       note_mismatch($sformatf("DEBUG=2 lineage residual got=%0d expected=%0d",
                               dbg2_emit_count, expected_lineage.size()));
@@ -320,8 +357,9 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
     $fwrite(fd, "{\n");
     $fwrite(fd, "  \"case_id\": \"%s\",\n", case_id);
     $fwrite(fd, "  \"debug_level\": %0d,\n", debug_level);
-    $fwrite(fd, "  \"summary\": {\"opq\": %0d, \"aw\": %0d, \"w\": %0d, \"b\": %0d, \"job_done\": %0d, \"mismatches\": %0d},\n",
-            opq_count, aw_count, w_count, b_count, job_done_count, mismatch_count);
+    $fwrite(fd, "  \"summary\": {\"opq\": %0d, \"ignored_opq\": %0d, \"aw\": %0d, \"w\": %0d, \"b\": %0d, \"job_done\": %0d, \"mismatches\": %0d},\n",
+            opq_count, ignored_opq_count, aw_count, w_count, b_count,
+            job_done_count, mismatch_count);
     $fwrite(fd, "  \"lineage\": [\n");
     foreach (expected_lineage[idx]) begin
       lin = expected_lineage[idx];

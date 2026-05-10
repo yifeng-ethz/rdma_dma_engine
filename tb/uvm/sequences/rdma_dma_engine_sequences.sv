@@ -7,6 +7,7 @@ class opq_axis_event_sequence extends uvm_sequence #(opq_axis_pkg::opq_axis_item
   int unsigned word_count;
   bit [31:0] data_base;
   bit [31:0] sequence_no;
+  int unsigned hit_id_base;
   bit mark_eoe_on_last;
   int unsigned idle_after_each;
 
@@ -15,6 +16,7 @@ class opq_axis_event_sequence extends uvm_sequence #(opq_axis_pkg::opq_axis_item
     word_count = 8;
     data_base = 32'hd00d_0000;
     sequence_no = 32'd1;
+    hit_id_base = 0;
     mark_eoe_on_last = 1'b1;
     idle_after_each = 0;
   endfunction
@@ -29,8 +31,8 @@ class opq_axis_event_sequence extends uvm_sequence #(opq_axis_pkg::opq_axis_item
       item.sop = (idx == 0);
       item.eoe = mark_eoe_on_last && (idx + 1 == word_count);
       item.lane = 4'h0;
-      item.hit_id = idx + 1;
-      item.source_ts = idx + 1;
+      item.hit_id = hit_id_base + idx + 1;
+      item.source_ts = hit_id_base + idx + 1;
       item.sequence_no = sequence_no;
       item.idle_after = idle_after_each;
       start_item(item);

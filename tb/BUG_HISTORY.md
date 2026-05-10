@@ -46,7 +46,7 @@ Historical formal note:
 | [BUG-004-H](#bug-004-h-generated-phase-b-lineage-harness-coupled-independent-fields) | H | non-datapath-refactor | directed-only (long dual-debug generated-case comparison) | fixed | Phase B B017-B032 expansion | `2dd9507` | Generated Phase B sequence metadata was coupled to SQE IDs and payload byte rollover, breaking long-case dual-debug evidence. |
 | [BUG-005-H](#bug-005-h-axi-completer-dropped-same-cycle-bvalid-before-clocked-handshake) | H | non-datapath-refactor | directed-only (same-cycle BVALID stress) | fixed | Phase B B059 | `21aca89` | The AXI completer deasserted BVALID before the DUT could sample a same-cycle B-channel handshake. |
 | [BUG-006-R](#bug-006-r-eoe-tail-could-remain-behind-short-final-aw) | R | soft error | common (EOE after full FIFO beats but before a 16-beat burst is available) | fixed | Phase B B063 | `21aca89` | The writer could latch a short final AW before the packer had pushed the EOE partial tail into the FIFO. |
-| [BUG-007-R](#bug-007-r-eoe-reporting-could-close-before-later-event-beats-drained) | R | soft error | occasional (multi-event EOE jobs under host B-channel latency) | fixed | Phase B B066 | `pending` | The writer stopped accepting later event beats and reported after the first EOE/B response instead of draining all accepted multi-event data. |
+| [BUG-007-R](#bug-007-r-eoe-reporting-could-close-before-later-event-beats-drained) | R | soft error | occasional (multi-event EOE jobs under host B-channel latency) | fixed | Phase B B066 | `c884e45` | The writer stopped accepting later event beats and reported after the first EOE/B response instead of draining all accepted multi-event data. |
 
 ## 2026-05-10
 
@@ -98,7 +98,7 @@ Historical formal note:
   - after-fix B078 observes `opq=100 aw=7 w=100 b=7 done=1 mismatches=0`
     in both debug lanes
 - Commit:
-  - `pending`
+  - `c884e45`
 
 ### BUG-006-R: EOE tail could remain behind short final AW
 - First seen in:
