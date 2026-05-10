@@ -4716,6 +4716,371 @@ package rdma_dma_engine_pkg;
       check_reset_defaults(tag);
     endtask
 
+    task run_error_wready_stuck_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_writer_stall_case(.tag(tag), .state(4'd3),
+                            .aw_lag(0), .w_lag(512), .b_lag(1),
+                            .sqe_id(sqe_id), .sequence_no(sequence_no));
+    endtask
+
+    task run_error_bvalid_stuck_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_writer_stall_case(.tag(tag), .state(4'd4),
+                            .aw_lag(0), .w_lag(0), .b_lag(512),
+                            .sqe_id(sqe_id), .sequence_no(sequence_no));
+    endtask
+
+    task run_error_long_idle_no_job_case(input string tag);
+      bit bad_seen;
+
+      bad_seen = 1'b0;
+      for (int unsigned cycle = 0; cycle < 1000000; cycle++) begin
+        @(posedge vif.clk);
+        if ((vif.dbg1_writer_state !== 4'd0) ||
+            vif.m_axi_awvalid || vif.m_axi_wvalid || vif.m_axi_bready ||
+            vif.job_done)
+          bad_seen = 1'b1;
+      end
+      if (bad_seen)
+        `uvm_error(tag, "idle watchdog observed non-idle writer activity")
+      check_reset_defaults(tag);
+    endtask
+
+    task run_error_bresp_reset_align_valid_chain(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_error_bresp_case(.tag({tag, "_bresp"}),
+                           .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
+                           .error_index(-1),
+                           .opq_words(32),
+                           .sqe_id(sqe_id),
+                           .sequence_no(sequence_no));
+      apply_midrun_reset();
+      check_reset_defaults({tag, "_reset"});
+      run_error_align_refusal_case(.tag({tag, "_align"}),
+                                   .seg0_addr(64'h0000_0000_0010_0001),
+                                   .seg0_span(64'h1000),
+                                   .seg1_addr(64'h0000_0000_0000_0000),
+                                   .seg1_span(64'h0),
+                                   .sqe_id(sqe_id + 16'd1),
+                                   .sequence_no(sequence_no + 32'd1));
+      run_dma_job(.tag({tag, "_valid"}), .opq_words(16),
+                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd2),
+                  .sequence_no(sequence_no + 32'd2),
+                  .timeout_cycles(300000));
+      check_status_bit({tag, "_valid"}, "status[EOE]", RDMA_DMA_ST_EOE,
+                       1'b1);
+    endtask
+
+    task run_error_bresp_halt_eoe_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_halt_count_job(.tag(tag), .dropped_words(8),
+                         .sqe_id(sqe_id), .sequence_no(sequence_no),
+                         .bresp(axi4_write_pkg::AXI_RESP_SLVERR));
+      check_status_bit(tag, "status[HALT]", RDMA_DMA_ST_HALT, 1'b1);
+      check_status_bit(tag, "status[AXI_ERR]", 6, 1'b1);
+      check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
+    endtask
+
+    task run_error_triple_reset_valid_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      for (int unsigned idx = 0; idx < 3; idx++) begin
+        apply_midrun_reset();
+        check_reset_defaults($sformatf("%s_reset%0d", tag, idx));
+      end
+      run_dma_job(.tag({tag, "_valid"}), .opq_words(16),
+                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .sequence_no(sequence_no), .timeout_cycles(300000));
+      check_status_bit({tag, "_valid"}, "status[EOE]", RDMA_DMA_ST_EOE,
+                       1'b1);
+    endtask
+
+    task run_error_halt_reset_reentry_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_halt_count_job(.tag({tag, "_halt0"}), .dropped_words(4),
+                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+      apply_midrun_reset();
+      check_reset_defaults({tag, "_reset0"});
+      run_halt_count_job(.tag({tag, "_halt1"}), .dropped_words(4),
+                         .sqe_id(sqe_id + 16'd1),
+                         .sequence_no(sequence_no + 32'd1));
+      apply_midrun_reset();
+      check_reset_defaults({tag, "_reset1"});
+      run_dma_job(.tag({tag, "_valid"}), .opq_words(16),
+                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd2),
+                  .sequence_no(sequence_no + 32'd2),
+                  .timeout_cycles(300000));
+      check_status_bit({tag, "_valid"}, "status[EOE]", RDMA_DMA_ST_EOE,
+                       1'b1);
+    endtask
+
+    task run_error_dbg2_lineage_reset_residual_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned ingress_before_reset;
+
+      env.axi_cfg.wready_lag = 5000;
+      expect_simple_status_job(64'd128, 32'd128, 32'd0,
+                               single_seg_eoe_status(),
+                               single_seg_status_mask(), sqe_id);
+      drive_direct_job_req(64'h0000_0000_0010_0000,
+                           64'h0000_0000_0000_1000,
+                           64'h0000_0000_0000_0000,
+                           64'h0000_0000_0000_0000,
+                           sqe_id, 16'h0001, 1);
+      wait_cycles(2);
+      drive_direct_words(32, 1'b0, sequence_no, next_lineage_id);
+      wait_cycles(4);
+      ingress_before_reset = env.scb.opq_count;
+      if ((env.debug_level >= 2) && (ingress_before_reset == 0))
+        `uvm_error(tag, "DEBUG2 reset residual case saw no ingress")
+      apply_midrun_reset();
+      env.axi_cfg.wready_lag = 0;
+      check_reset_defaults({tag, "_reset"});
+      run_dma_job(.tag({tag, "_fresh"}), .opq_words(8),
+                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .sequence_no(sequence_no + 32'd1),
+                  .timeout_cycles(300000));
+      if ((env.debug_level >= 2) && (env.scb.dbg2_emit_count != 8))
+        `uvm_error(tag, "DEBUG2 lineage did not restart after reset residual")
+    endtask
+
+    task run_error_dbg2_bresp_lineage_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_error_bresp_case(.tag(tag),
+                           .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
+                           .error_index(-1),
+                           .opq_words(64),
+                           .sqe_id(sqe_id),
+                           .sequence_no(sequence_no));
+      if ((env.debug_level >= 2) && (env.scb.dbg2_emit_count != 64))
+        `uvm_error(tag, "DEBUG2 lineage did not close under BRESP error")
+    endtask
+
+    task run_error_dbg2_align_no_traffic_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      run_error_align_refusal_case(.tag(tag),
+                                   .seg0_addr(64'h0000_0000_0010_0001),
+                                   .seg0_span(64'h1000),
+                                   .seg1_addr(64'h0000_0000_0000_0000),
+                                   .seg1_span(64'h0),
+                                   .sqe_id(sqe_id),
+                                   .sequence_no(sequence_no));
+      if (env.scb.opq_count != 0)
+        `uvm_error(tag, "ALIGN_ERR lineage case accepted ingress")
+      if ((env.debug_level >= 2) && (env.scb.dbg2_emit_count != 0))
+        `uvm_error(tag, "ALIGN_ERR lineage case emitted DEBUG2 entries")
+    endtask
+
+    task run_error_random_fault_profile_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      for (int unsigned idx = 0; idx < 100; idx++) begin
+        if ((idx % 25) == 0) begin
+          apply_midrun_reset();
+          check_reset_defaults($sformatf("%s_reset%0d", tag, idx));
+        end else if ((idx % 10) == 0) begin
+          run_halt_count_job(.tag($sformatf("%s_halt%0d", tag, idx)),
+                             .dropped_words(4),
+                             .sqe_id(sqe_id + idx[15:0]),
+                             .sequence_no(sequence_no + idx));
+        end else if ((idx % 5) == 0) begin
+          run_dma_job(.tag($sformatf("%s_bresp%0d", tag, idx)),
+                      .opq_words(16), .send_eoe(1'b1),
+                      .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
+                      .sqe_id(sqe_id + idx[15:0]),
+                      .sequence_no(sequence_no + idx),
+                      .timeout_cycles(300000));
+        end else begin
+          run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
+                      .opq_words(8 + ((idx * 7) % 32)),
+                      .send_eoe(1'b1),
+                      .sqe_id(sqe_id + idx[15:0]),
+                      .sequence_no(sequence_no + idx),
+                      .timeout_cycles(300000));
+        end
+      end
+      run_dma_job(.tag({tag, "_final"}), .opq_words(16),
+                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd100),
+                  .sequence_no(sequence_no + 32'd100),
+                  .timeout_cycles(300000));
+      check_conservation(tag);
+    endtask
+
+    task run_error_random_align_valid_mix_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned align_jobs;
+
+      align_jobs = 0;
+      for (int unsigned idx = 0; idx < 100; idx++) begin
+        if ((idx % 2) == 0) begin
+          align_jobs++;
+          run_dma_job(.tag($sformatf("%s_align%0d", tag, idx)),
+                      .seg0_addr(64'h0000_0000_0010_0001),
+                      .opq_words(0), .send_eoe(1'b0),
+                      .sqe_id(sqe_id + idx[15:0]),
+                      .sequence_no(sequence_no + idx),
+                      .timeout_cycles(300000));
+          check_status_bit(tag, "status[ALIGN_ERR]",
+                           RDMA_DMA_ST_ALIGN_ERR, 1'b1);
+        end else begin
+          run_dma_job(.tag($sformatf("%s_valid%0d", tag, idx)),
+                      .opq_words(8 + ((idx * 5) % 32)),
+                      .send_eoe(1'b1),
+                      .sqe_id(sqe_id + idx[15:0]),
+                      .sequence_no(sequence_no + idx),
+                      .timeout_cycles(300000));
+        end
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'd100);
+      if (align_jobs != 50)
+        `uvm_error(tag, "ALIGN_ERR mix did not execute 50 align jobs")
+      check_conservation(tag);
+    endtask
+
+    task run_error_random_reset_every_n_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned global_idx;
+
+      global_idx = 0;
+      for (int unsigned reset_idx = 0; reset_idx < 20; reset_idx++) begin
+        int unsigned jobs_this_group;
+        jobs_this_group = 5 + ((reset_idx * 7 + 3) % 16);
+        for (int unsigned job_idx = 0; job_idx < jobs_this_group; job_idx++) begin
+          run_dma_job(.tag($sformatf("%s_r%0d_j%0d", tag, reset_idx, job_idx)),
+                      .opq_words(8 + ((global_idx * 3) % 24)),
+                      .send_eoe(1'b1),
+                      .sqe_id(sqe_id + global_idx[15:0]),
+                      .sequence_no(sequence_no + global_idx),
+                      .timeout_cycles(300000));
+          global_idx++;
+        end
+        check_u32_equal(tag, "group job_done_count",
+                        env.scb.job_done_count, jobs_this_group[31:0]);
+        check_conservation(tag);
+        apply_midrun_reset();
+        check_reset_defaults($sformatf("%s_reset%0d", tag, reset_idx));
+      end
+      run_dma_job(.tag({tag, "_final"}), .opq_words(16),
+                  .send_eoe(1'b1), .sqe_id(sqe_id + global_idx[15:0]),
+                  .sequence_no(sequence_no + global_idx),
+                  .timeout_cycles(300000));
+      check_status_bit({tag, "_final"}, "status[EOE]", RDMA_DMA_ST_EOE,
+                       1'b1);
+    endtask
+
+    task run_error_random_bresp_rate_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned error_jobs;
+
+      error_jobs = 0;
+      for (int unsigned idx = 0; idx < 1000; idx++) begin
+        bit inject_error;
+        inject_error = ((idx % 20) == 0);
+        if (inject_error)
+          error_jobs++;
+        run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
+                    .opq_words(4 + ((idx * 3) % 16)),
+                    .send_eoe(1'b1),
+                    .bresp(inject_error ? axi4_write_pkg::AXI_RESP_SLVERR :
+                                           axi4_write_pkg::AXI_RESP_OKAY),
+                    .sqe_id(sqe_id + idx[15:0]),
+                    .sequence_no(sequence_no + idx),
+                    .timeout_cycles(300000));
+      end
+      check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
+                      32'd1000);
+      if (error_jobs != 50)
+        `uvm_error(tag, "BRESP error rate did not hit 5 percent")
+      check_conservation(tag);
+    endtask
+
+    task run_error_random_combined_fault_rate_case(
+      input string tag,
+      input bit [15:0] sqe_id,
+      input bit [31:0] sequence_no
+    );
+      int unsigned fault_ops;
+      int unsigned jobs_since_reset;
+
+      fault_ops = 0;
+      jobs_since_reset = 0;
+      for (int unsigned idx = 0; idx < 1000; idx++) begin
+        if ((idx % 10) == 0) begin
+          fault_ops++;
+          if ((idx % 100) == 0) begin
+            if (jobs_since_reset != 0)
+              check_conservation($sformatf("%s_pre_reset%0d", tag, idx));
+            apply_midrun_reset();
+            check_reset_defaults($sformatf("%s_reset%0d", tag, idx));
+            jobs_since_reset = 0;
+          end else if ((idx % 50) == 0) begin
+            run_halt_count_job(.tag($sformatf("%s_halt%0d", tag, idx)),
+                               .dropped_words(4),
+                               .sqe_id(sqe_id + idx[15:0]),
+                               .sequence_no(sequence_no + idx));
+            jobs_since_reset++;
+          end else begin
+            run_dma_job(.tag($sformatf("%s_bresp%0d", tag, idx)),
+                        .opq_words(8), .send_eoe(1'b1),
+                        .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
+                        .sqe_id(sqe_id + idx[15:0]),
+                        .sequence_no(sequence_no + idx),
+                        .timeout_cycles(300000));
+            jobs_since_reset++;
+          end
+        end else begin
+          run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
+                      .opq_words(4 + ((idx * 5) % 16)),
+                      .send_eoe(1'b1),
+                      .sqe_id(sqe_id + idx[15:0]),
+                      .sequence_no(sequence_no + idx),
+                      .timeout_cycles(300000));
+          jobs_since_reset++;
+        end
+      end
+      check_conservation(tag);
+      if (fault_ops != 100)
+        `uvm_error(tag, "combined fault rate did not hit 10 percent")
+    endtask
+
     task run_profile_multi_event_case(
       input string tag,
       input int unsigned event_count,
@@ -7473,7 +7838,8 @@ package rdma_dma_engine_pkg;
       input int unsigned dropped_words = 10,
       input bit [15:0] sqe_id = 16'h0100,
       input bit [31:0] sequence_no = 32'd1,
-      input bit clear_after_first_halt = 1'b0
+      input bit clear_after_first_halt = 1'b0,
+      input bit [1:0] bresp = axi4_write_pkg::AXI_RESP_OKAY
     );
       job_single_segment_sequence job_seq;
       int unsigned accepted_words;
@@ -7494,7 +7860,8 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 5000;
       env.axi_cfg.bvalid_lag = 1;
-      env.axi_cfg.bresp = axi4_write_pkg::AXI_RESP_OKAY;
+      env.axi_cfg.bresp = bresp;
+      env.scb.set_allow_non_okay_bresp(bresp != axi4_write_pkg::AXI_RESP_OKAY);
 
       job_seq = job_single_segment_sequence::type_id::create({tag, "_job_seq"});
       job_seq.seg0_addr = 64'h0000_0000_0040_0000;
@@ -7582,6 +7949,10 @@ package rdma_dma_engine_pkg;
       expected_status[RDMA_DMA_ST_EOE] = 1'b1;
       expected_status[RDMA_DMA_ST_HALT] = 1'b1;
       expected_status[RDMA_DMA_ST_SEG0_ONLY] = 1'b1;
+      if (bresp != axi4_write_pkg::AXI_RESP_OKAY) begin
+        status_mask[6] = 1'b1;
+        expected_status[6] = 1'b1;
+      end
       env.scb.expect_job(expected_total, expected_total[31:0], 32'h0000_0000,
                          expected_status, status_mask, sqe_id);
       drive_direct_opq_word({8'h00, sequence_no[15:0], accepted_words[7:0]},
@@ -7598,6 +7969,8 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 1;
+      env.axi_cfg.bresp = axi4_write_pkg::AXI_RESP_OKAY;
+      env.scb.set_allow_non_okay_bresp(1'b0);
       next_lineage_id = lineage_id;
     endtask
 
@@ -10477,6 +10850,57 @@ package rdma_dma_engine_pkg;
             96: run_error_opq_stuck_wr_w_case(.tag(id),
                                               .sqe_id(sqe_id),
                                               .sequence_no(num));
+            default: run_error_idle_reset_case(id);
+          endcase
+          return;
+        end else if (num <= 112) begin
+          case (num)
+            97: run_error_wready_stuck_case(.tag(id),
+                                            .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            98: run_error_bvalid_stuck_case(.tag(id),
+                                            .sqe_id(sqe_id),
+                                            .sequence_no(num));
+            99: run_error_long_idle_no_job_case(id);
+            100: run_error_bresp_reset_align_valid_chain(.tag(id),
+                                                         .sqe_id(sqe_id),
+                                                         .sequence_no(num));
+            101: run_error_bresp_halt_eoe_case(.tag(id),
+                                               .sqe_id(sqe_id),
+                                               .sequence_no(num));
+            102: run_error_triple_reset_valid_case(.tag(id),
+                                                   .sqe_id(sqe_id),
+                                                   .sequence_no(num));
+            103: run_error_halt_reset_reentry_case(.tag(id),
+                                                   .sqe_id(sqe_id),
+                                                   .sequence_no(num));
+            104: run_dbg2_halt_residual_case(.tag(id),
+                                             .sqe_id(sqe_id),
+                                             .sequence_no(num));
+            105: run_error_dbg2_lineage_reset_residual_case(.tag(id),
+                                                            .sqe_id(sqe_id),
+                                                            .sequence_no(num));
+            106: run_error_dbg2_bresp_lineage_case(.tag(id),
+                                                   .sqe_id(sqe_id),
+                                                   .sequence_no(num));
+            107: run_error_dbg2_align_no_traffic_case(.tag(id),
+                                                      .sqe_id(sqe_id),
+                                                      .sequence_no(num));
+            108: run_error_random_fault_profile_case(.tag(id),
+                                                     .sqe_id(sqe_id),
+                                                     .sequence_no(num));
+            109: run_error_random_align_valid_mix_case(.tag(id),
+                                                       .sqe_id(sqe_id),
+                                                       .sequence_no(num));
+            110: run_error_random_reset_every_n_case(.tag(id),
+                                                     .sqe_id(sqe_id),
+                                                     .sequence_no(num));
+            111: run_error_random_bresp_rate_case(.tag(id),
+                                                  .sqe_id(sqe_id),
+                                                  .sequence_no(num));
+            112: run_error_random_combined_fault_rate_case(.tag(id),
+                                                           .sqe_id(sqe_id),
+                                                           .sequence_no(num));
             default: run_error_idle_reset_case(id);
           endcase
           return;
