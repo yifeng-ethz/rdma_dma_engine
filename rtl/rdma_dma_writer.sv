@@ -257,7 +257,6 @@ module rdma_dma_writer #(
 
     assign accepting_input        = (writer.state != WR_IDLING) &&
                                     (writer.state != WR_REPORTING) &&
-                                    !writer.eoe_seen &&
                                     !writer.status[STATUS_FULL_CONST] &&
                                     !writer.status[STATUS_ALIGN_ERR_CONST];
     assign flush_datapath         = (writer.state == WR_REPORTING);
@@ -282,7 +281,7 @@ module rdma_dma_writer #(
                 writer.status[STATUS_HALT_CONST] <= 1'b1;
             end
 
-            if (eoe_seen_pulse && accepting_input && !writer.eoe_seen) begin
+            if (eoe_seen_pulse && accepting_input) begin
                 writer.eoe_seen                  <= 1'b1;
                 writer.status[STATUS_EOE_CONST] <= 1'b1;
                 writer.event_count               <= writer.event_count + 32'd1;
@@ -397,7 +396,7 @@ module rdma_dma_writer #(
                             writer.status[STATUS_AXI_ERR_CONST] <= 1'b1;
                         end
 
-                        if (writer.eoe_seen) begin
+                        if (eoe_report_ready) begin
                             writer.state <= WR_REPORTING;
                         end else if (writer.bytes_left_seg == 64'h0000_0000_0000_0000) begin
                             if ((writer.cur_seg == 1'b0) &&
