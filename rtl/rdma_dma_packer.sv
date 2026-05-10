@@ -67,16 +67,6 @@ module rdma_dma_packer #(
         logic [63:0]                          cycle_count;
     } packer_state_t;
 
-    localparam packer_state_t PACKER_RESET_CONST = '{
-        data            : '0,
-        dbg2_meta       : '0,
-        dbg2_valid_mask : '0,
-        slot_count      : '0,
-        pending_eoe     : 1'b0,
-        pending_eoe_ts  : 64'h0000_0000_0000_0000,
-        cycle_count     : 64'h0000_0000_0000_0000
-    };
-
     packer_state_t packer;
 
     logic                                can_emit;
@@ -131,7 +121,13 @@ module rdma_dma_packer #(
 
     always_ff @(posedge clk or negedge reset_n) begin : opq_packer
         if (!reset_n) begin
-            packer                <= PACKER_RESET_CONST;
+            packer.data            <= '0;
+            packer.dbg2_meta       <= '0;
+            packer.dbg2_valid_mask <= '0;
+            packer.slot_count      <= '0;
+            packer.pending_eoe     <= 1'b0;
+            packer.pending_eoe_ts  <= 64'h0000_0000_0000_0000;
+            packer.cycle_count     <= 64'h0000_0000_0000_0000;
             packed_data           <= '0;
             packed_valid          <= 1'b0;
             packed_last_in_event  <= 1'b0;
