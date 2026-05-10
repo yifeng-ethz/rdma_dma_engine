@@ -89,6 +89,7 @@ module rdma_dma_writer #(
     localparam logic [1:0] AXI_RESP_OKAY_CONST    = 2'b00;
     localparam logic [5:0] DMA_BYTES_6_CONST      = DMA_BYTES_CONST;
     localparam logic [7:0] MAX_BURST_BEATS_CONST  = MAX_BURST_BEATS;
+    localparam logic [FIFO_LEVEL_W-1:0] MAX_BURST_LEVEL_CONST = MAX_BURST_BEATS;
 
     localparam int unsigned STATUS_EOE_CONST              = 0;
     localparam int unsigned STATUS_FULL_CONST             = 1;
@@ -176,8 +177,7 @@ module rdma_dma_writer #(
         begin
             choose_v_beats_left = (bytes_left + DMA_BYTES_CONST - 64'd1) >> AXI_SIZE_CONST;
             choose_v_candidate  = MAX_BURST_BEATS_CONST;
-            if ({55'h000_0000_0000_0000, level} <
-                {56'h00_0000_0000_0000, choose_v_candidate}) begin
+            if (level < MAX_BURST_LEVEL_CONST) begin
                 choose_v_candidate = level[7:0];
             end
             if (choose_v_beats_left < {56'h00_0000_0000_0000, choose_v_candidate}) begin
