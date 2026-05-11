@@ -19,14 +19,14 @@ interface rdma_dma_engine_if #(
   logic [63:0] job_seg0_span;
   logic [63:0] job_seg1_addr;
   logic [63:0] job_seg1_span;
-  logic [15:0] job_sqe_id;
+  logic [15:0] job_rqe_id;
   logic [15:0] job_opcode;
   logic        job_done;
   logic [63:0] job_bytes_written_total;
   logic [31:0] job_seg0_bytes_written;
   logic [31:0] job_seg1_bytes_written;
   logic [15:0] job_status;
-  logic [15:0] job_sqe_id_echo;
+  logic [15:0] job_rqe_id_echo;
   logic [31:0] job_event_count;
   logic [63:0] job_first_event_ts;
   logic [63:0] job_last_event_ts;
@@ -86,7 +86,7 @@ interface rdma_dma_engine_if #(
     job_seg0_span <= '0;
     job_seg1_addr <= '0;
     job_seg1_span <= '0;
-    job_sqe_id <= '0;
+    job_rqe_id <= '0;
     job_opcode <= '0;
     m_axi_awready <= 1'b0;
     m_axi_wready <= 1'b0;

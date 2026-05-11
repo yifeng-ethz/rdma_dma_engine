@@ -19,14 +19,14 @@ module rdma_dma_engine #(
   input  logic [63:0] job_seg0_span,
   input  logic [63:0] job_seg1_addr,
   input  logic [63:0] job_seg1_span,
-  input  logic [15:0] job_sqe_id,
+  input  logic [15:0] job_rqe_id,
   input  logic [15:0] job_opcode,
   output logic job_done,
   output logic [63:0] job_bytes_written_total,
   output logic [31:0] job_seg0_bytes_written,
   output logic [31:0] job_seg1_bytes_written,
   output logic [15:0] job_status,
-  output logic [15:0] job_sqe_id_echo,
+  output logic [15:0] job_rqe_id_echo,
   output logic [31:0] job_event_count,
   output logic [63:0] job_first_event_ts,
   output logic [63:0] job_last_event_ts,
@@ -88,7 +88,7 @@ module rdma_dma_engine #(
   logic [63:0] cur_addr_q;
   logic [63:0] seg0_span_q;
   logic [63:0] seg1_span_q;
-  logic [15:0] sqe_id_q;
+  logic [15:0] rqe_id_q;
   logic [15:0] status_q;
   logic [63:0] cycle_q;
   logic [3:0] slot_q;
@@ -189,7 +189,7 @@ module rdma_dma_engine #(
       cur_addr_q <= 64'h0;
       seg0_span_q <= 64'h0;
       seg1_span_q <= 64'h0;
-      sqe_id_q <= 16'h0;
+      rqe_id_q <= 16'h0;
       status_q <= 16'h0;
       cycle_q <= 64'h0;
       slot_q <= 4'h0;
@@ -217,7 +217,7 @@ module rdma_dma_engine #(
       job_seg0_bytes_written <= 32'h0;
       job_seg1_bytes_written <= 32'h0;
       job_status <= 16'h0;
-      job_sqe_id_echo <= 16'h0;
+      job_rqe_id_echo <= 16'h0;
       job_event_count <= 32'h0;
       job_first_event_ts <= 64'h0;
       job_last_event_ts <= 64'h0;
@@ -305,21 +305,21 @@ module rdma_dma_engine #(
             job_seg0_bytes_written <= 32'h0;
             job_seg1_bytes_written <= 32'h0;
             job_status <= 16'h0;
-            job_sqe_id_echo <= job_sqe_id;
+            job_rqe_id_echo <= job_rqe_id;
             job_event_count <= 32'h0;
             job_first_event_ts <= 64'h0;
             job_last_event_ts <= 64'h0;
             if (align_error(job_seg0_addr, job_seg0_span, job_seg1_addr, job_seg1_span)) begin
               job_status[ST_ALIGN_ERR] <= 1'b1;
               status_q <= 16'(1 << ST_ALIGN_ERR);
-              sqe_id_q <= job_sqe_id;
+              rqe_id_q <= job_rqe_id;
               state_q <= WR_REPORT_ALIGN_ERR;
             end else begin
               job_active_q <= 1'b1;
               cur_addr_q <= job_seg0_addr;
               seg0_span_q <= job_seg0_span;
               seg1_span_q <= job_seg1_span;
-              sqe_id_q <= job_sqe_id;
+              rqe_id_q <= job_rqe_id;
               status_q <= (job_seg1_span == 64'h0) ? 16'(1 << ST_SEG0_ONLY) : 16'h0;
               job_status <= (job_seg1_span == 64'h0) ? 16'(1 << ST_SEG0_ONLY) : 16'h0;
               state_q <= WR_PROGRAM;
@@ -360,13 +360,13 @@ module rdma_dma_engine #(
         end
         WR_REPORT_DONE: begin
           job_done <= 1'b1;
-          job_sqe_id_echo <= sqe_id_q;
+          job_rqe_id_echo <= rqe_id_q;
           job_active_q <= 1'b0;
           state_q <= WR_IDLE;
         end
         WR_REPORT_ALIGN_ERR: begin
           job_done <= 1'b1;
-          job_sqe_id_echo <= sqe_id_q;
+          job_rqe_id_echo <= rqe_id_q;
           job_bytes_written_total <= 64'h0;
           job_seg0_bytes_written <= 32'h0;
           job_seg1_bytes_written <= 32'h0;

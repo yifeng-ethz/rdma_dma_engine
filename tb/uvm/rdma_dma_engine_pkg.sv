@@ -248,10 +248,10 @@ package rdma_dma_engine_pkg;
       input bit [31:0] seg1_bytes,
       input bit [15:0] status_value,
       input bit [15:0] status_mask,
-      input bit [15:0] sqe_id
+      input bit [15:0] rqe_id
     );
       env.scb.expect_job(total_bytes, seg0_bytes, seg1_bytes,
-                         status_value, status_mask, sqe_id);
+                         status_value, status_mask, rqe_id);
     endfunction
 
     function bit [15:0] single_seg_eoe_status();
@@ -424,7 +424,7 @@ package rdma_dma_engine_pkg;
       input int unsigned wready_lag = 0,
       input int unsigned bvalid_lag = 1,
       input bit [1:0] bresp = axi4_write_pkg::AXI_RESP_OKAY,
-      input bit [15:0] sqe_id = 16'h0100,
+      input bit [15:0] rqe_id = 16'h0100,
       input bit [31:0] sequence_no = 32'd1,
       input int unsigned idle_after_each = 0,
       input int unsigned timeout_cycles = 200000
@@ -484,14 +484,14 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.bresp = bresp;
       env.scb.set_allow_non_okay_bresp(bresp != axi4_write_pkg::AXI_RESP_OKAY);
       env.scb.expect_job(expected_total, expected_seg0, expected_seg1,
-                         expected_status, status_mask, sqe_id);
+                         expected_status, status_mask, rqe_id);
 
       job_seq = job_single_segment_sequence::type_id::create({tag, "_job_seq"});
       job_seq.seg0_addr = seg0_addr;
       job_seq.seg0_span = seg0_span;
       job_seq.seg1_addr = seg1_addr;
       job_seq.seg1_span = seg1_span;
-      job_seq.sqe_id = sqe_id;
+      job_seq.rqe_id = rqe_id;
       job_seq.opcode = 16'h0001;
       job_seq.start(env.job_agent_h.sequencer);
 
@@ -539,7 +539,7 @@ package rdma_dma_engine_pkg;
       input bit [63:0] seg0_span = 64'h0000_0000_0000_1000,
       input bit [63:0] seg1_addr = 64'h0000_0000_0020_0000,
       input bit [63:0] seg1_span = 64'h0000_0000_0000_0000,
-      input bit [15:0] sqe_id = 16'h0100,
+      input bit [15:0] rqe_id = 16'h0100,
       input bit [31:0] sequence_no = 32'd1,
       input int unsigned awready_lag = 0,
       input int unsigned wready_lag = 0,
@@ -581,14 +581,14 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.bvalid_lag = bvalid_lag;
       env.axi_cfg.bresp = axi4_write_pkg::AXI_RESP_OKAY;
       env.scb.expect_job(expected_total, expected_seg0, expected_seg1,
-                         expected_status, status_mask, sqe_id);
+                         expected_status, status_mask, rqe_id);
 
       job_seq = job_single_segment_sequence::type_id::create({tag, "_job_seq"});
       job_seq.seg0_addr = seg0_addr;
       job_seq.seg0_span = seg0_span;
       job_seq.seg1_addr = seg1_addr;
       job_seq.seg1_span = seg1_span;
-      job_seq.sqe_id = sqe_id;
+      job_seq.rqe_id = rqe_id;
       job_seq.opcode = 16'h0001;
       job_seq.start(env.job_agent_h.sequencer);
       wait_cycles(2);
@@ -654,7 +654,7 @@ package rdma_dma_engine_pkg;
       input bit [63:0] seg0_span,
       input bit [63:0] seg1_addr,
       input bit [63:0] seg1_span,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [15:0] opcode,
       input int unsigned hold_cycles = 1
     );
@@ -663,7 +663,7 @@ package rdma_dma_engine_pkg;
       vif.job_seg0_span <= seg0_span;
       vif.job_seg1_addr <= seg1_addr;
       vif.job_seg1_span <= seg1_span;
-      vif.job_sqe_id <= sqe_id;
+      vif.job_rqe_id <= rqe_id;
       vif.job_opcode <= opcode;
       vif.job_req <= 1'b1;
       repeat (hold_cycles) @(negedge vif.clk);
@@ -687,7 +687,7 @@ package rdma_dma_engine_pkg;
     task run_direct_req_job(
       input string tag,
       input int unsigned hold_cycles,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit check_state_after_capture = 1'b0
     );
       bit [15:0] expected_status;
@@ -695,7 +695,7 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 1;
@@ -703,24 +703,24 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, hold_cycles);
+                           rqe_id, 16'h0001, hold_cycles);
       if (check_state_after_capture && (vif.dbg1_writer_state == 4'd0))
         `uvm_error(tag, "job_req pulse did not move writer out of IDLE")
       wait_cycles(2);
-      drive_direct_words(8, 1'b1, {16'h0000, sqe_id}, next_lineage_id);
+      drive_direct_words(8, 1'b1, {16'h0000, rqe_id}, next_lineage_id);
       wait_for_done(300000);
       wait_cycles(2);
       check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd1);
       check_u32_equal(tag, "job_bytes_written_total",
                       vif.job_bytes_written_total[31:0], 32'd32);
-      if (vif.job_sqe_id_echo !== sqe_id)
-        `uvm_error(tag, $sformatf("sqe_id_echo got=0x%04h expected=0x%04h",
-                                  vif.job_sqe_id_echo, sqe_id))
+      if (vif.job_rqe_id_echo !== rqe_id)
+        `uvm_error(tag, $sformatf("rqe_id_echo got=0x%04h expected=0x%04h",
+                                  vif.job_rqe_id_echo, rqe_id))
     endtask
 
     task run_done_pulse_report_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit check_report_hold,
       input bit check_req_overlap
     );
@@ -730,7 +730,7 @@ package rdma_dma_engine_pkg;
       bit [31:0] seg0_at_done;
       bit [31:0] seg1_at_done;
       bit [15:0] status_at_done;
-      bit [15:0] sqe_at_done;
+      bit [15:0] rqe_at_done;
       bit [31:0] event_count_at_done;
       bit [63:0] first_ts_at_done;
       bit [63:0] last_ts_at_done;
@@ -740,7 +740,7 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 1;
@@ -748,9 +748,9 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
-      drive_direct_words(8, 1'b1, {16'h0000, sqe_id}, next_lineage_id);
+      drive_direct_words(8, 1'b1, {16'h0000, rqe_id}, next_lineage_id);
 
       done_cycles = 0;
       seen_done = 1'b0;
@@ -764,7 +764,7 @@ package rdma_dma_engine_pkg;
             seg0_at_done = vif.job_seg0_bytes_written;
             seg1_at_done = vif.job_seg1_bytes_written;
             status_at_done = vif.job_status;
-            sqe_at_done = vif.job_sqe_id_echo;
+            rqe_at_done = vif.job_rqe_id_echo;
             event_count_at_done = vif.job_event_count;
             first_ts_at_done = vif.job_first_event_ts;
             last_ts_at_done = vif.job_last_event_ts;
@@ -774,7 +774,7 @@ package rdma_dma_engine_pkg;
               vif.job_seg0_span <= 64'h0000_0000_0000_1000;
               vif.job_seg1_addr <= 64'h0000_0000_0000_0000;
               vif.job_seg1_span <= 64'h0000_0000_0000_0000;
-              vif.job_sqe_id <= sqe_id + 16'd1;
+              vif.job_rqe_id <= rqe_id + 16'd1;
               vif.job_opcode <= 16'h0001;
               vif.job_req <= 1'b1;
             end
@@ -795,7 +795,7 @@ package rdma_dma_engine_pkg;
             (vif.job_seg0_bytes_written !== seg0_at_done) ||
             (vif.job_seg1_bytes_written !== seg1_at_done) ||
             (vif.job_status !== status_at_done) ||
-            (vif.job_sqe_id_echo !== sqe_at_done) ||
+            (vif.job_rqe_id_echo !== rqe_at_done) ||
             (vif.job_event_count !== event_count_at_done) ||
             (vif.job_first_event_ts !== first_ts_at_done) ||
             (vif.job_last_event_ts !== last_ts_at_done))
@@ -806,11 +806,11 @@ package rdma_dma_engine_pkg;
         if (vif.job_done)
           `uvm_error(tag, "job_done overlapped the post-done accepted request")
         expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                                 expected_status, status_mask, sqe_id + 16'd1);
+                                 expected_status, status_mask, rqe_id + 16'd1);
         @(negedge vif.clk);
         vif.job_req <= 1'b0;
         wait_cycles(2);
-        drive_direct_words(8, 1'b1, {16'h0000, sqe_id + 16'd1},
+        drive_direct_words(8, 1'b1, {16'h0000, rqe_id + 16'd1},
                            next_lineage_id);
         wait_for_done(300000);
       end
@@ -818,13 +818,13 @@ package rdma_dma_engine_pkg;
       wait_cycles(2);
     endtask
 
-    task run_fifo_level_probe_case(input string tag, input bit [15:0] sqe_id);
+    task run_fifo_level_probe_case(input string tag, input bit [15:0] rqe_id);
       bit [15:0] expected_status;
       bit [15:0] status_mask;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd128, 32'd128, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 5000;
       env.axi_cfg.bvalid_lag = 1;
@@ -832,9 +832,9 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
-      drive_direct_words(32, 1'b1, {16'h0000, sqe_id}, next_lineage_id);
+      drive_direct_words(32, 1'b1, {16'h0000, rqe_id}, next_lineage_id);
       wait_cycles(4);
       if (vif.dbg1_fifo_level !== 9'd4)
         `uvm_error(tag, $sformatf("dbg1_fifo_level got=%0d expected=4",
@@ -844,14 +844,14 @@ package rdma_dma_engine_pkg;
       wait_cycles(2);
     endtask
 
-    task run_packer_slot_probe_case(input string tag, input bit [15:0] sqe_id);
+    task run_packer_slot_probe_case(input string tag, input bit [15:0] rqe_id);
       bit [15:0] expected_status;
       bit [15:0] status_mask;
       int unsigned expected_slot;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd64, 32'd64, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 5000;
       env.axi_cfg.bvalid_lag = 1;
@@ -859,11 +859,11 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       for (int unsigned idx = 0; idx < 16; idx++) begin
-        drive_direct_opq_word({8'h00, sqe_id, idx[7:0]},
-                              (idx == 15), {16'h0000, sqe_id},
+        drive_direct_opq_word({8'h00, rqe_id, idx[7:0]},
+                              (idx == 15), {16'h0000, rqe_id},
                               next_lineage_id + idx + 1);
         expected_slot = (idx + 1) % RDMA_DMA_OPQ_PER_BEAT;
         if (vif.dbg1_packer_slot_idx !== expected_slot[3:0])
@@ -890,13 +890,13 @@ package rdma_dma_engine_pkg;
       `uvm_fatal(tag, $sformatf("dbg1_writer_state %0d not observed", state))
     endtask
 
-    task run_writer_state_probe_case(input string tag, input bit [15:0] sqe_id);
+    task run_writer_state_probe_case(input string tag, input bit [15:0] rqe_id);
       bit [15:0] expected_status;
       bit [15:0] status_mask;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd64, 32'd64, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 20;
       env.axi_cfg.wready_lag = 6;
       env.axi_cfg.bvalid_lag = 20;
@@ -906,12 +906,12 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       if (vif.dbg1_writer_state !== 4'd1)
         `uvm_error(tag, $sformatf("PROGRAMMING state not observed, got=%0d",
                                   vif.dbg1_writer_state))
       wait_for_dbg1_state(tag, 4'd2);
-      drive_direct_words(16, 1'b1, {16'h0000, sqe_id}, next_lineage_id);
+      drive_direct_words(16, 1'b1, {16'h0000, rqe_id}, next_lineage_id);
       wait_for_dbg1_state(tag, 4'd3);
       wait_for_dbg1_state(tag, 4'd4);
       wait_for_dbg1_state(tag, 4'd5);
@@ -922,7 +922,7 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.bvalid_lag = 1;
     endtask
 
-    task run_dbg1_aw_inflight_case(input string tag, input bit [15:0] sqe_id);
+    task run_dbg1_aw_inflight_case(input string tag, input bit [15:0] rqe_id);
       bit [15:0] expected_status;
       bit [15:0] status_mask;
       bit stop_monitor;
@@ -934,7 +934,7 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd2560, 32'd2560, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 20;
@@ -966,9 +966,9 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
-      drive_direct_words(640, 1'b1, {16'h0000, sqe_id}, next_lineage_id);
+      drive_direct_words(640, 1'b1, {16'h0000, rqe_id}, next_lineage_id);
       wait_for_done(300000);
       wait_cycles(2);
       stop_monitor = 1'b1;
@@ -984,7 +984,7 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.bvalid_lag = 1;
     endtask
 
-    task run_dbg1_w_remaining_case(input string tag, input bit [15:0] sqe_id);
+    task run_dbg1_w_remaining_case(input string tag, input bit [15:0] rqe_id);
       bit [15:0] expected_status;
       bit [15:0] status_mask;
       bit stop_monitor;
@@ -995,7 +995,7 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd512, 32'd512, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 2;
       env.axi_cfg.bvalid_lag = 12;
@@ -1022,9 +1022,9 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
-      drive_direct_words(128, 1'b1, {16'h0000, sqe_id}, next_lineage_id);
+      drive_direct_words(128, 1'b1, {16'h0000, rqe_id}, next_lineage_id);
       wait_for_done(300000);
       wait_cycles(2);
       stop_monitor = 1'b1;
@@ -1038,7 +1038,7 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.bvalid_lag = 1;
     endtask
 
-    task run_dbg1_b_outstanding_case(input string tag, input bit [15:0] sqe_id);
+    task run_dbg1_b_outstanding_case(input string tag, input bit [15:0] rqe_id);
       bit [15:0] expected_status;
       bit [15:0] status_mask;
       bit stop_monitor;
@@ -1048,7 +1048,7 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd512, 32'd512, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 100;
@@ -1073,9 +1073,9 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
-      drive_direct_words(128, 1'b1, {16'h0000, sqe_id}, next_lineage_id);
+      drive_direct_words(128, 1'b1, {16'h0000, rqe_id}, next_lineage_id);
       wait_for_done(300000);
       wait_cycles(2);
       stop_monitor = 1'b1;
@@ -1092,7 +1092,7 @@ package rdma_dma_engine_pkg;
     task run_multi_event_var_job(
       input string tag,
       input int unsigned event_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no,
       input int unsigned timeout_cycles = 300000
     );
@@ -1111,7 +1111,7 @@ package rdma_dma_engine_pkg;
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'(total_words) * 64'd4,
                                (total_words * 4), 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 24;
@@ -1120,7 +1120,7 @@ package rdma_dma_engine_pkg;
       job_seq.seg0_span = 64'h0000_0000_0001_0000;
       job_seq.seg1_addr = 64'h0000_0000_0000_0000;
       job_seq.seg1_span = 64'h0000_0000_0000_0000;
-      job_seq.sqe_id = sqe_id;
+      job_seq.rqe_id = rqe_id;
       job_seq.opcode = 16'h0001;
       job_seq.start(env.job_agent_h.sequencer);
       wait_cycles(2);
@@ -1139,13 +1139,13 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.bvalid_lag = 1;
     endtask
 
-    task run_random_idle_job(input string tag, input bit [15:0] sqe_id);
+    task run_random_idle_job(input string tag, input bit [15:0] rqe_id);
       bit [15:0] expected_status;
       bit [15:0] status_mask;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd400, 32'd400, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 1;
@@ -1153,11 +1153,11 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       for (int unsigned idx = 0; idx < 100; idx++) begin
-        drive_direct_opq_word({8'h00, sqe_id, idx[7:0]}, (idx == 99),
-                              {16'h0000, sqe_id}, next_lineage_id + idx + 1);
+        drive_direct_opq_word({8'h00, rqe_id, idx[7:0]}, (idx == 99),
+                              {16'h0000, rqe_id}, next_lineage_id + idx + 1);
         wait_cycles((idx * 17 + 3) % 4);
       end
       next_lineage_id += 100;
@@ -1166,7 +1166,7 @@ package rdma_dma_engine_pkg;
       check_conservation(tag);
     endtask
 
-    task run_random_mixed_jobs(input string tag, input bit [15:0] sqe_id);
+    task run_random_mixed_jobs(input string tag, input bit [15:0] rqe_id);
       bit [63:0] spans [3];
       spans[0] = 64'h0000_0000_0000_1000;
       spans[1] = 64'h0000_0000_0000_2000;
@@ -1186,7 +1186,7 @@ package rdma_dma_engine_pkg;
                     .seg1_span(seg1_span_v),
                     .opq_words(words_v),
                     .send_eoe(1'b1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(32'(idx + 1)),
                     .idle_after_each(idx % 3),
                     .timeout_cycles(300000));
@@ -1194,7 +1194,7 @@ package rdma_dma_engine_pkg;
       check_conservation(tag);
     endtask
 
-    task run_queue_single_burst_case(input string tag, input bit [15:0] sqe_id);
+    task run_queue_single_burst_case(input string tag, input bit [15:0] rqe_id);
       bit stop_monitor;
       int unsigned cycle_count;
       int unsigned w_count_local;
@@ -1223,7 +1223,7 @@ package rdma_dma_engine_pkg;
         end
       join_none
       run_dma_job(.tag(tag), .seg0_span(64'h1000), .opq_words(128),
-                  .send_eoe(1'b1), .sqe_id(sqe_id), .sequence_no(32'd117),
+                  .send_eoe(1'b1), .rqe_id(rqe_id), .sequence_no(32'd117),
                   .timeout_cycles(300000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -1236,7 +1236,7 @@ package rdma_dma_engine_pkg;
           last_w_cycle - first_w_cycle + 1))
     endtask
 
-    task run_queue_burst_model_case(input string tag, input bit [15:0] sqe_id);
+    task run_queue_burst_model_case(input string tag, input bit [15:0] rqe_id);
       int unsigned aw_before;
       int unsigned w_before;
       int unsigned aw_delta;
@@ -1246,7 +1246,7 @@ package rdma_dma_engine_pkg;
       aw_before = env.scb.aw_count;
       w_before = env.scb.w_count;
       run_dma_job(.tag(tag), .seg0_span(64'h2000), .opq_words(2048),
-                  .send_eoe(1'b0), .sqe_id(sqe_id), .sequence_no(32'd118),
+                  .send_eoe(1'b0), .rqe_id(rqe_id), .sequence_no(32'd118),
                   .timeout_cycles(500000));
       aw_delta = env.scb.aw_count - aw_before;
       w_delta = env.scb.w_count - w_before;
@@ -1261,7 +1261,7 @@ package rdma_dma_engine_pkg;
           util_milli))
     endtask
 
-    task run_fifo_residency_case(input string tag, input bit [15:0] sqe_id);
+    task run_fifo_residency_case(input string tag, input bit [15:0] rqe_id);
       bit stop_monitor;
       int unsigned sample_count;
       int unsigned max_level;
@@ -1286,7 +1286,7 @@ package rdma_dma_engine_pkg;
         end
       join_none
       run_dma_job(.tag(tag), .seg0_span(64'h4000), .opq_words(1024),
-                  .send_eoe(1'b1), .bvalid_lag(100), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .bvalid_lag(100), .rqe_id(rqe_id),
                   .sequence_no(32'd119), .timeout_cycles(500000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -1301,7 +1301,7 @@ package rdma_dma_engine_pkg;
       check_status_bit(tag, "status[HALT]", RDMA_DMA_ST_HALT, 1'b0);
     endtask
 
-    task run_segment_latency_case(input string tag, input bit [15:0] sqe_id);
+    task run_segment_latency_case(input string tag, input bit [15:0] rqe_id);
       bit stop_monitor;
       bit prev_programming;
       int unsigned programming_edges;
@@ -1326,7 +1326,7 @@ package rdma_dma_engine_pkg;
         end
       join_none
       run_dma_job(.tag(tag), .seg0_span(64'h1000), .seg1_span(64'h1000),
-                  .opq_words(2048), .send_eoe(1'b0), .sqe_id(sqe_id),
+                  .opq_words(2048), .send_eoe(1'b0), .rqe_id(rqe_id),
                   .sequence_no(32'd121), .timeout_cycles(500000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -1357,7 +1357,7 @@ package rdma_dma_engine_pkg;
       input int unsigned expected_last_awlen = 0,
       input bit check_seg1_aw = 1'b0,
       input bit [63:0] expected_seg1_aw = 64'h0000_0000_0020_0000,
-      input bit [15:0] sqe_id = 16'h0100,
+      input bit [15:0] rqe_id = 16'h0100,
       input bit [31:0] sequence_no = 32'd1,
       input int unsigned obs_idle_after_each = 0,
       input int unsigned obs_awready_lag = 0,
@@ -1422,7 +1422,7 @@ package rdma_dma_engine_pkg;
       run_dma_job(.tag(tag), .seg0_addr(obs_seg0_addr),
                   .seg0_span(obs_seg0_span), .seg1_addr(obs_seg1_addr),
                   .seg1_span(obs_seg1_span), .opq_words(obs_words),
-                  .send_eoe(obs_send_eoe), .sqe_id(sqe_id),
+                  .send_eoe(obs_send_eoe), .rqe_id(rqe_id),
                   .sequence_no(sequence_no),
                   .idle_after_each(obs_idle_after_each),
                   .awready_lag(obs_awready_lag),
@@ -1456,7 +1456,7 @@ package rdma_dma_engine_pkg;
 
     task run_fifo_threshold_edge_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit check_crossing,
       input bit check_drain,
       input bit [31:0] sequence_no = 32'd31
@@ -1474,7 +1474,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0001_0000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
 
       accepted_words = 0;
@@ -1532,7 +1532,7 @@ package rdma_dma_engine_pkg;
       lineage_id++;
       expect_simple_status_job(64'(accepted_words) * 64'd4,
                                accepted_words[31:0] * 32'd4, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       drive_direct_opq_word({8'h00, sequence_no[15:0], accepted_words[7:0]},
                             1'b1, sequence_no, lineage_id);
       wait_for_done(500000);
@@ -1546,7 +1546,7 @@ package rdma_dma_engine_pkg;
 
     task run_fifo_partial_fill_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -1555,7 +1555,7 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 5000;
       env.axi_cfg.bvalid_lag = 1;
@@ -1563,7 +1563,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0001_0000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_words(4, 1'b0, sequence_no, next_lineage_id);
       wait_cycles(2);
@@ -1586,7 +1586,7 @@ package rdma_dma_engine_pkg;
 
     task run_fifo_single_beat_dwell_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -1595,7 +1595,7 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 5000;
       env.axi_cfg.bvalid_lag = 1;
@@ -1603,7 +1603,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0001_0000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_words(8, 1'b1, sequence_no, next_lineage_id);
       wait_cycles(2);
@@ -1621,7 +1621,7 @@ package rdma_dma_engine_pkg;
 
     task run_fifo_fill_drain_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit check_fill,
       input bit check_empty_after_done,
       input bit [31:0] sequence_no
@@ -1635,7 +1635,7 @@ package rdma_dma_engine_pkg;
       accepted_words = 192 * RDMA_DMA_OPQ_PER_BEAT;
       expect_simple_status_job(64'(accepted_words + 1) * 64'd4,
                                32'(accepted_words + 1) * 32'd4,
-                               32'd0, expected_status, status_mask, sqe_id);
+                               32'd0, expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 50000;
       env.axi_cfg.bvalid_lag = 1;
@@ -1643,7 +1643,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0001_0000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
 
       for (int unsigned beat_idx = 0; beat_idx < 191; beat_idx++) begin
@@ -1683,7 +1683,7 @@ package rdma_dma_engine_pkg;
     task run_packer_flush_slot_case(
       input string tag,
       input int unsigned slot_words,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -1720,7 +1720,7 @@ package rdma_dma_engine_pkg;
       join_none
 
       run_dma_job(.tag(tag), .opq_words(slot_words), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no));
+                  .rqe_id(rqe_id), .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
       if (!saw_w)
@@ -1741,7 +1741,7 @@ package rdma_dma_engine_pkg;
 
     task run_packer_full_then_slot1_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -1779,7 +1779,7 @@ package rdma_dma_engine_pkg;
       join_none
 
       run_dma_job(.tag(tag), .opq_words(9), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no));
+                  .rqe_id(rqe_id), .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
       if (w_count_local != 2)
@@ -1804,7 +1804,7 @@ package rdma_dma_engine_pkg;
 
     task run_double_eoe_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -1813,7 +1813,7 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd4, 32'd4, 32'd0, expected_status,
-                               status_mask, sqe_id);
+                               status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 100;
       env.axi_cfg.bvalid_lag = 1;
@@ -1821,7 +1821,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_words(1, 1'b1, sequence_no, next_lineage_id);
       wait_cycles(2);
@@ -1840,11 +1840,11 @@ package rdma_dma_engine_pkg;
 
     task run_zero_byte_eoe_idle_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag(tag), .opq_words(0), .send_eoe(1'b0),
-                  .zero_eoe(1'b1), .sqe_id(sqe_id),
+                  .zero_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       check_u32_equal(tag, "job_event_count", vif.job_event_count, 32'd1);
       check_u32_equal(tag, "cnt_eoe_observed", vif.cnt_eoe_observed,
@@ -1869,7 +1869,7 @@ package rdma_dma_engine_pkg;
       input bit [63:0] expected_seg1_aw,
       input bit check_last_aw,
       input bit [63:0] expected_last_aw,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no,
       input int unsigned idle_after_each = 0,
       input int unsigned wready_lag = 0
@@ -1888,7 +1888,7 @@ package rdma_dma_engine_pkg;
                           .expected_last_aw(expected_last_aw),
                           .obs_idle_after_each(idle_after_each),
                           .obs_wready_lag(wready_lag),
-                          .sqe_id(sqe_id), .sequence_no(sequence_no),
+                          .rqe_id(rqe_id), .sequence_no(sequence_no),
                           .timeout_cycles(500000));
       check_u32_equal(tag, "job_seg0_bytes_written",
                       vif.job_seg0_bytes_written, expected_seg0);
@@ -1903,7 +1903,7 @@ package rdma_dma_engine_pkg;
 
     task run_exact_full_burst_eoe_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_aw_observed_job(.tag(tag), .obs_words(128),
@@ -1912,7 +1912,7 @@ package rdma_dma_engine_pkg;
                           .expected_first_aw(64'h0000_0000_0010_0000),
                           .check_first_awlen(1'b1),
                           .expected_first_awlen(15),
-                          .sqe_id(sqe_id), .sequence_no(sequence_no));
+                          .rqe_id(rqe_id), .sequence_no(sequence_no));
       check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd128);
       check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
                       32'd512);
@@ -1922,7 +1922,7 @@ package rdma_dma_engine_pkg;
 
     task run_eoe_after_full_burst_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_aw_observed_job(.tag(tag), .obs_words(129),
@@ -1933,7 +1933,7 @@ package rdma_dma_engine_pkg;
                           .expected_first_awlen(15),
                           .check_last_awlen(1'b1),
                           .expected_last_awlen(0),
-                          .sqe_id(sqe_id), .sequence_no(sequence_no));
+                          .rqe_id(rqe_id), .sequence_no(sequence_no));
       check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd129);
       check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
                       32'd516);
@@ -1943,7 +1943,7 @@ package rdma_dma_engine_pkg;
 
     task run_eoe_during_aw_phase_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_aw_observed_job(.tag(tag), .obs_words(5),
@@ -1953,7 +1953,7 @@ package rdma_dma_engine_pkg;
                           .check_first_awlen(1'b1),
                           .expected_first_awlen(0),
                           .obs_awready_lag(100),
-                          .sqe_id(sqe_id), .sequence_no(sequence_no));
+                          .rqe_id(rqe_id), .sequence_no(sequence_no));
       check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd5);
       check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
                       32'd20);
@@ -1963,7 +1963,7 @@ package rdma_dma_engine_pkg;
 
     task run_program_phase_eoe_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -1974,7 +1974,7 @@ package rdma_dma_engine_pkg;
       expected_status[RDMA_DMA_ST_EOE] = 1'b1;
       expected_status[RDMA_DMA_ST_SEG_BOUNDARY_HIT] = 1'b1;
       expect_simple_status_job(64'd4096, 32'd4096, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 1;
@@ -1982,7 +1982,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0020_0000,
                            64'h0000_0000_0000_1000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_words(1024, 1'b0, sequence_no, next_lineage_id);
       for (int unsigned cycle = 0; cycle < 300000; cycle++) begin
@@ -2007,7 +2007,7 @@ package rdma_dma_engine_pkg;
 
     task run_full_boundary_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no,
       input bit send_eoe_at_full
     );
@@ -2019,7 +2019,7 @@ package rdma_dma_engine_pkg;
                           .expected_first_awlen(15),
                           .check_last_awlen(1'b1),
                           .expected_last_awlen(15),
-                          .sqe_id(sqe_id), .sequence_no(sequence_no));
+                          .rqe_id(rqe_id), .sequence_no(sequence_no));
       check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd1024);
       check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
                       32'd4096);
@@ -2030,11 +2030,11 @@ package rdma_dma_engine_pkg;
 
     task run_align_error_no_write_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag(tag), .seg0_span(64'h0), .opq_words(0),
-                  .send_eoe(1'b0), .sqe_id(sqe_id),
+                  .send_eoe(1'b0), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
                        1'b1);
@@ -2047,8 +2047,8 @@ package rdma_dma_engine_pkg;
 
     task run_two_job_one_cycle_after_done_case(
       input string tag,
-      input bit [15:0] first_sqe_id,
-      input bit [15:0] second_sqe_id,
+      input bit [15:0] first_rqe_id,
+      input bit [15:0] second_rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -2058,9 +2058,9 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, first_sqe_id);
+                               expected_status, status_mask, first_rqe_id);
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, second_sqe_id);
+                               expected_status, status_mask, second_rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 1;
@@ -2068,7 +2068,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           first_sqe_id, 16'h0001, 1);
+                           first_rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_words(8, 1'b1, sequence_no, next_lineage_id);
       seen_done = 1'b0;
@@ -2086,7 +2086,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           second_sqe_id, 16'h0001, 1);
+                           second_rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_words(8, 1'b1, sequence_no + 32'd100, next_lineage_id);
       wait_for_done(300000);
@@ -2101,35 +2101,35 @@ package rdma_dma_engine_pkg;
     task run_two_jobs_with_gap_case(
       input string tag,
       input int unsigned gap_cycles,
-      input bit [15:0] first_sqe_id,
-      input bit [15:0] second_sqe_id,
+      input bit [15:0] first_rqe_id,
+      input bit [15:0] second_rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_job0"}), .opq_words(8), .send_eoe(1'b1),
-                  .sqe_id(first_sqe_id), .sequence_no(sequence_no));
+                  .rqe_id(first_rqe_id), .sequence_no(sequence_no));
       if (vif.dbg1_writer_state !== 4'd0)
         `uvm_error(tag, "writer was not idle after first job")
       wait_cycles(gap_cycles);
       if (vif.dbg1_writer_state !== 4'd0)
         `uvm_error(tag, "writer did not remain idle through the gap")
       run_dma_job(.tag({tag, "_job1"}), .opq_words(8), .send_eoe(1'b1),
-                  .sqe_id(second_sqe_id), .sequence_no(sequence_no + 32'd100));
+                  .rqe_id(second_rqe_id), .sequence_no(sequence_no + 32'd100));
       check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
                       32'd2);
     endtask
 
     task run_mixed_span_two_job_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_job0"}), .seg0_span(64'h1000),
                   .opq_words(1024), .send_eoe(1'b0),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       run_dma_job(.tag({tag, "_job1"}), .seg0_span(64'h4000),
                   .opq_words(4096), .send_eoe(1'b0),
-                  .sqe_id(sqe_id + 16'd1),
+                  .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd100),
                   .timeout_cycles(700000));
       check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
@@ -2151,7 +2151,7 @@ package rdma_dma_engine_pkg;
 
     task run_packer_pending_eoe_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2176,7 +2176,7 @@ package rdma_dma_engine_pkg;
       join_none
 
       run_dma_job(.tag(tag), .opq_words(5), .send_eoe(1'b1),
-                  .wready_lag(200), .sqe_id(sqe_id),
+                  .wready_lag(200), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -2188,7 +2188,7 @@ package rdma_dma_engine_pkg;
 
     task run_writer_state_cycle_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2238,7 +2238,7 @@ package rdma_dma_engine_pkg;
 
       run_dma_job(.tag(tag), .seg0_span(64'h1000), .opq_words(1024),
                   .send_eoe(1'b0), .awready_lag(8), .wready_lag(2),
-                  .bvalid_lag(12), .sqe_id(sqe_id),
+                  .bvalid_lag(12), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(500000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -2248,7 +2248,7 @@ package rdma_dma_engine_pkg;
 
     task run_dbg2_slot5_padding_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2271,7 +2271,7 @@ package rdma_dma_engine_pkg;
       join_none
 
       run_packer_flush_slot_case(.tag(tag), .slot_words(5),
-                                 .sqe_id(sqe_id),
+                                 .rqe_id(rqe_id),
                                  .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -2281,11 +2281,11 @@ package rdma_dma_engine_pkg;
 
     task run_dbg2_halt_residual_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_halt_count_job(.tag(tag), .dropped_words(4),
-                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+                         .rqe_id(rqe_id), .sequence_no(sequence_no));
       if (env.debug_level >= 2) begin
         if (env.scb.ignored_opq_count != vif.cnt_halt)
           `uvm_error(tag, $sformatf("ignored OPQ got=%0d expected cnt_halt=%0d",
@@ -2299,12 +2299,12 @@ package rdma_dma_engine_pkg;
 
     task run_dbg2_hit_id_wrap_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       next_lineage_id = 32'h0000_fffc;
       run_dma_job(.tag(tag), .opq_words(16), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       if (next_lineage_id <= 32'h0001_0000)
         `uvm_error(tag, "hit_id stream did not cross the 16-bit wrap point")
@@ -2315,7 +2315,7 @@ package rdma_dma_engine_pkg;
 
     task run_dbg2_monotonic_sequence_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2351,12 +2351,12 @@ package rdma_dma_engine_pkg;
 
       expect_simple_status_job(64'd128, 32'd128, 32'd0,
                                single_seg_eoe_status(),
-                               single_seg_status_mask(), sqe_id);
+                               single_seg_status_mask(), rqe_id);
       drive_direct_job_req(64'h0000_0000_0010_0000,
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       for (int unsigned idx = 0; idx < 32; idx++) begin
         drive_direct_opq_word({8'h00, sequence_no[15:0], idx[7:0]},
@@ -2375,7 +2375,7 @@ package rdma_dma_engine_pkg;
 
     task run_dbg2_monotonic_source_ts_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2411,7 +2411,7 @@ package rdma_dma_engine_pkg;
 
       next_lineage_id = 32'h0000_2000;
       run_dma_job(.tag(tag), .opq_words(32), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -2422,7 +2422,7 @@ package rdma_dma_engine_pkg;
 
     task run_dbg2_inert_dbg1_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2442,7 +2442,7 @@ package rdma_dma_engine_pkg;
       join_none
 
       run_dma_job(.tag(tag), .opq_words(32), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -2454,7 +2454,7 @@ package rdma_dma_engine_pkg;
 
     task run_random_span_grid_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [63:0] span_grid [5];
@@ -2472,7 +2472,7 @@ package rdma_dma_engine_pkg;
                                            64'h0),
                     .opq_words(64 + ((idx * 37) % 512)),
                     .send_eoe(1'b1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .idle_after_each(idx % 3),
                     .timeout_cycles(400000));
@@ -2482,7 +2482,7 @@ package rdma_dma_engine_pkg;
 
     task run_random_eoe_slot_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < 16; idx++) begin
@@ -2491,14 +2491,14 @@ package rdma_dma_engine_pkg;
         slot_words = 1 + ((idx * 5) % RDMA_DMA_OPQ_PER_BEAT);
         run_packer_flush_slot_case(.tag($sformatf("%s_slot%0d", tag, idx)),
                                    .slot_words(slot_words),
-                                   .sqe_id(sqe_id + idx[15:0]),
+                                   .rqe_id(rqe_id + idx[15:0]),
                                    .sequence_no(sequence_no + idx));
       end
     endtask
 
     task run_random_two_segment_transition_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < 16; idx++) begin
@@ -2506,7 +2506,7 @@ package rdma_dma_engine_pkg;
                     .seg0_span(64'h1000), .seg1_span(64'h1000),
                     .opq_words(1025 + ((idx * 37) % 512)),
                     .send_eoe(1'b1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .idle_after_each(idx % 4),
                     .timeout_cycles(500000));
@@ -2518,7 +2518,7 @@ package rdma_dma_engine_pkg;
 
     task run_random_burst_size_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < 32; idx++) begin
@@ -2533,7 +2533,7 @@ package rdma_dma_engine_pkg;
                             .obs_idle_after_each(idx % 5),
                             .obs_wready_lag((idx % 4) == 0 ? 3 : 0),
                             .obs_bvalid_lag((idx % 5) == 0 ? 24 : 1),
-                            .sqe_id(sqe_id + idx[15:0]),
+                            .rqe_id(rqe_id + idx[15:0]),
                             .sequence_no(sequence_no + idx),
                             .timeout_cycles(500000));
       end
@@ -2542,7 +2542,7 @@ package rdma_dma_engine_pkg;
 
     task run_fifo_above_threshold_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2560,7 +2560,7 @@ package rdma_dma_engine_pkg;
         end
       join_none
       run_halt_count_job(.tag(tag), .dropped_words(8),
-                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+                         .rqe_id(rqe_id), .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
       if (max_level != 192)
@@ -2574,7 +2574,7 @@ package rdma_dma_engine_pkg;
     task run_fifo_overfill_guard_case(
       input string tag,
       input int unsigned attempted_entries,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2595,7 +2595,7 @@ package rdma_dma_engine_pkg;
       join_none
 
       run_halt_count_job(.tag(tag), .dropped_words(dropped_words),
-                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+                         .rqe_id(rqe_id), .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
       if (max_level != 192)
@@ -2608,16 +2608,16 @@ package rdma_dma_engine_pkg;
 
     task run_fifo_recovery_after_halt_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [31:0] halt_after_inject;
 
       run_halt_count_job(.tag({tag, "_halt"}), .dropped_words(16),
-                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+                         .rqe_id(rqe_id), .sequence_no(sequence_no));
       halt_after_inject = vif.cnt_halt;
       run_dma_job(.tag({tag, "_clean"}), .opq_words(16), .send_eoe(1'b1),
-                  .sqe_id(sqe_id + 16'd1),
+                  .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
       check_u32_equal(tag, "cnt_halt after recovery job",
@@ -2628,7 +2628,7 @@ package rdma_dma_engine_pkg;
 
     task run_fifo_simultaneous_rw_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2658,7 +2658,7 @@ package rdma_dma_engine_pkg;
       join_none
 
       run_dma_job(.tag(tag), .opq_words(512), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(500000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -2674,7 +2674,7 @@ package rdma_dma_engine_pkg;
 
     task run_fifo_single_write_burst_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit seen_level [0:16];
@@ -2694,7 +2694,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0001_0000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
 
       for (int unsigned beat_idx = 0; beat_idx < 16; beat_idx++) begin
@@ -2725,7 +2725,7 @@ package rdma_dma_engine_pkg;
       lineage_id++;
       expect_simple_status_job(64'(accepted_words) * 64'd4,
                                accepted_words[31:0] * 32'd4, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       drive_direct_opq_word({8'h00, sequence_no[15:0], accepted_words[7:0]},
                             1'b1, sequence_no, lineage_id);
       env.axi_cfg.awready_lag = 0;
@@ -2738,7 +2738,7 @@ package rdma_dma_engine_pkg;
 
     task run_fifo_single_read_burst_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit seen_level [0:16];
@@ -2759,7 +2759,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0001_0000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
 
       for (int unsigned beat_idx = 0; beat_idx < 16; beat_idx++) begin
@@ -2801,7 +2801,7 @@ package rdma_dma_engine_pkg;
       lineage_id++;
       expect_simple_status_job(64'(accepted_words) * 64'd4,
                                accepted_words[31:0] * 32'd4, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       drive_direct_opq_word({8'h00, sequence_no[15:0], accepted_words[7:0]},
                             1'b1, sequence_no, lineage_id);
       wait_for_done(500000);
@@ -2824,24 +2824,24 @@ package rdma_dma_engine_pkg;
 
     task run_counter_input_saturation_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       preload_counter_input_near_max();
       run_dma_job(.tag(tag), .opq_words(2), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'hffff_ffff);
     endtask
 
     task run_counter_bytes_saturation_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       preload_counter_bytes_near_max();
       run_dma_job(.tag(tag), .opq_words(16), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
                       32'hffff_ffff);
@@ -2860,7 +2860,7 @@ package rdma_dma_engine_pkg;
 
     task run_writer_align_err_transition_case(
       input string tag,
-      input bit [15:0] sqe_id
+      input bit [15:0] rqe_id
     );
       bit saw_report;
       saw_report = 1'b0;
@@ -2874,7 +2874,7 @@ package rdma_dma_engine_pkg;
         end
       join_none
       run_dma_job(.tag(tag), .seg0_addr(64'h0000_0000_0010_0001),
-                  .opq_words(0), .send_eoe(1'b0), .sqe_id(sqe_id),
+                  .opq_words(0), .send_eoe(1'b0), .rqe_id(rqe_id),
                   .timeout_cycles(300000));
       wait_cycles(2);
       if (!saw_report)
@@ -2885,7 +2885,7 @@ package rdma_dma_engine_pkg;
 
     task run_writer_two_segment_program_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2909,7 +2909,7 @@ package rdma_dma_engine_pkg;
       run_dma_job(.tag(tag), .seg0_span(64'h0000_0000_0000_1000),
                   .seg1_span(64'h0000_0000_0000_1000),
                   .opq_words(2048), .send_eoe(1'b0),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(500000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -2922,7 +2922,7 @@ package rdma_dma_engine_pkg;
 
     task run_writer_b_to_aw_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2945,7 +2945,7 @@ package rdma_dma_engine_pkg;
 
       run_dma_job(.tag(tag), .seg0_span(64'h0000_0000_0000_2000),
                   .opq_words(2048), .send_eoe(1'b0),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(500000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -2959,7 +2959,7 @@ package rdma_dma_engine_pkg;
       input int unsigned aw_lag,
       input int unsigned w_lag,
       input int unsigned b_lag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -2986,7 +2986,7 @@ package rdma_dma_engine_pkg;
 
       run_dma_job(.tag(tag), .opq_words(128), .send_eoe(1'b1),
                   .awready_lag(aw_lag), .wready_lag(w_lag),
-                  .bvalid_lag(b_lag), .sqe_id(sqe_id),
+                  .bvalid_lag(b_lag), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(500000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -2997,7 +2997,7 @@ package rdma_dma_engine_pkg;
 
     task run_job_req_opq_idle_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stayed_waiting;
@@ -3007,7 +3007,7 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 1;
@@ -3015,7 +3015,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_for_dbg1_state(tag, 4'd2);
       stayed_waiting = 1'b1;
       for (int unsigned cycle = 0; cycle < 128; cycle++) begin
@@ -3072,7 +3072,7 @@ package rdma_dma_engine_pkg;
 
     task run_job_req_immediate_opq_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -3086,7 +3086,7 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 1;
@@ -3119,7 +3119,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       drive_direct_words(8, 1'b1, sequence_no, next_lineage_id);
 
       wait_for_done(300000);
@@ -3135,7 +3135,7 @@ package rdma_dma_engine_pkg;
 
     task run_opq_before_job_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [31:0] input_before;
@@ -3160,14 +3160,14 @@ package rdma_dma_engine_pkg;
         `uvm_error(tag, "pre-job OPQ attempts produced AXI or job activity")
 
       run_dma_job(.tag({tag, "_late_job"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no + 32'd100),
                   .timeout_cycles(300000));
     endtask
 
     task run_high_half_address_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_aw_observed_job(.tag(tag),
@@ -3176,14 +3176,14 @@ package rdma_dma_engine_pkg;
                           .obs_words(8),
                           .obs_send_eoe(1'b1),
                           .expected_first_aw(64'hffff_ffff_0000_0000),
-                          .sqe_id(sqe_id),
+                          .rqe_id(rqe_id),
                           .sequence_no(sequence_no),
                           .timeout_cycles(300000));
     endtask
 
     task run_opq_after_done_ignored_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [31:0] input_after_done;
@@ -3191,7 +3191,7 @@ package rdma_dma_engine_pkg;
       bit [31:0] bytes_after_done;
 
       run_dma_job(.tag({tag, "_job0"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       input_after_done = vif.cnt_input_w;
@@ -3211,7 +3211,7 @@ package rdma_dma_engine_pkg;
                       env.scb.job_done_count, 32'd1);
 
       run_dma_job(.tag({tag, "_job1"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd100),
                   .timeout_cycles(300000));
       check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd2);
@@ -3219,7 +3219,7 @@ package rdma_dma_engine_pkg;
 
     task run_random_eoe_throttled_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < 16; idx++) begin
@@ -3228,7 +3228,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .wready_lag((idx % 4) == 0 ? 9 : 2),
                     .bvalid_lag((idx % 3) == 0 ? 48 : 7),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .idle_after_each(idx % 5),
                     .timeout_cycles(500000));
@@ -3238,7 +3238,7 @@ package rdma_dma_engine_pkg;
 
     task run_random_alignment_mix_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < 32; idx++) begin
@@ -3252,7 +3252,7 @@ package rdma_dma_engine_pkg;
                     .opq_words(invalid_alignment ? 0 :
                                (8 + ((idx * 3) % 24))),
                     .send_eoe(!invalid_alignment),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
         check_status_bit($sformatf("%s_iter%0d", tag, idx),
@@ -3264,7 +3264,7 @@ package rdma_dma_engine_pkg;
 
     task run_random_multi_event_drains_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < 16; idx++) begin
@@ -3275,7 +3275,7 @@ package rdma_dma_engine_pkg;
                                 .event_count(event_count),
                                 .words_per_event(2 + (idx % 7)),
                                 .gap_cycles(idx % 3),
-                                .sqe_id(sqe_id + idx[15:0]),
+                                .rqe_id(rqe_id + idx[15:0]),
                                 .sequence_no(sequence_no + idx),
                                 .bvalid_lag(200),
                                 .timeout_cycles(700000));
@@ -3287,7 +3287,7 @@ package rdma_dma_engine_pkg;
 
     task run_random_span_eoe_throttle_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < 16; idx++) begin
@@ -3310,7 +3310,7 @@ package rdma_dma_engine_pkg;
                     .awready_lag((idx % 6) == 0 ? 17 : 0),
                     .wready_lag((idx % 4) == 0 ? 5 : 0),
                     .bvalid_lag((idx % 7) == 0 ? 64 : 1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .idle_after_each(idx % 4),
                     .timeout_cycles(600000));
@@ -3320,7 +3320,7 @@ package rdma_dma_engine_pkg;
 
     task run_first_event_ts_capture_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -3332,7 +3332,7 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd16, 32'd16, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 0;
       env.axi_cfg.bvalid_lag = 1;
@@ -3357,7 +3357,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_words(4, 1'b1, sequence_no, next_lineage_id);
       wait_for_done(300000);
@@ -3374,11 +3374,11 @@ package rdma_dma_engine_pkg;
 
     task run_first_last_ts_equal_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag(tag), .opq_words(8), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       check_u64_equal(tag, "job_first_event_ts", vif.job_first_event_ts,
                       vif.job_last_event_ts);
@@ -3386,12 +3386,12 @@ package rdma_dma_engine_pkg;
 
     task run_last_ts_later_event_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_multi_event_job(.tag(tag), .event_count(3),
                               .words_per_event(4), .gap_cycles(6),
-                              .sqe_id(sqe_id), .sequence_no(sequence_no),
+                              .rqe_id(rqe_id), .sequence_no(sequence_no),
                               .bvalid_lag(200),
                               .timeout_cycles(500000));
       if (vif.job_last_event_ts <= vif.job_first_event_ts)
@@ -3400,11 +3400,11 @@ package rdma_dma_engine_pkg;
 
     task run_two_jobs_clean_fifo_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_job0"}), .opq_words(64),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       check_u32_equal(tag, "fifo level after job0", vif.dbg1_fifo_level,
@@ -3413,7 +3413,7 @@ package rdma_dma_engine_pkg;
           vif.dbg1_packer_pending_eoe !== 1'b0)
         `uvm_error(tag, "packer was not empty after job0 completion")
       run_dma_job(.tag({tag, "_job1"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd100),
                   .timeout_cycles(300000));
       check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd2);
@@ -3421,21 +3421,21 @@ package rdma_dma_engine_pkg;
 
     task run_three_back_to_back_jobs_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_job0"}), .seg0_span(64'h1000),
                   .opq_words(8), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       run_dma_job(.tag({tag, "_job1"}), .seg0_span(64'h1000),
                   .seg1_span(64'h1000), .opq_words(1032),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd100),
                   .timeout_cycles(500000));
       run_dma_job(.tag({tag, "_job2"}), .seg0_span(64'h1000),
                   .opq_words(1024), .send_eoe(1'b0),
-                  .sqe_id(sqe_id + 16'd2),
+                  .rqe_id(rqe_id + 16'd2),
                   .sequence_no(sequence_no + 32'd200),
                   .timeout_cycles(500000));
       check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd3);
@@ -3444,19 +3444,19 @@ package rdma_dma_engine_pkg;
 
     task run_two_segment_then_single_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_job0"}), .seg0_span(64'h1000),
                   .seg1_span(64'h1000), .opq_words(1032),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no),
                   .timeout_cycles(500000));
       check_status_bit({tag, "_job0"}, "status[SEG_BOUNDARY_HIT]",
                        RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
       run_dma_job(.tag({tag, "_job1"}), .seg0_span(64'h1000),
                   .opq_words(16), .send_eoe(1'b1),
-                  .sqe_id(sqe_id + 16'd1),
+                  .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd100),
                   .timeout_cycles(300000));
       check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd2);
@@ -3465,17 +3465,17 @@ package rdma_dma_engine_pkg;
 
     task run_align_error_then_clean_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_align"}), .seg0_addr(64'h0000_0000_0010_0001),
                   .opq_words(0), .send_eoe(1'b0),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       check_status_bit({tag, "_align"}, "status[ALIGN_ERR]",
                        RDMA_DMA_ST_ALIGN_ERR, 1'b1);
       run_dma_job(.tag({tag, "_clean"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd100),
                   .timeout_cycles(300000));
       check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd2);
@@ -3491,7 +3491,7 @@ package rdma_dma_engine_pkg;
       input bit [63:0] seg0_span,
       input bit [63:0] seg1_addr,
       input bit [63:0] seg1_span,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned aw_before;
@@ -3501,7 +3501,7 @@ package rdma_dma_engine_pkg;
       w_before = env.scb.w_count;
       run_dma_job(.tag(tag), .seg0_addr(seg0_addr), .seg0_span(seg0_span),
                   .seg1_addr(seg1_addr), .seg1_span(seg1_span),
-                  .opq_words(0), .send_eoe(1'b0), .sqe_id(sqe_id),
+                  .opq_words(0), .send_eoe(1'b0), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
                        1'b1);
@@ -3514,11 +3514,11 @@ package rdma_dma_engine_pkg;
 
     task run_error_single_segment_legal_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag(tag), .seg1_span(64'h0), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
                        1'b0);
@@ -3532,7 +3532,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_align_after_valid_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [31:0] cnt_input_before;
@@ -3541,7 +3541,7 @@ package rdma_dma_engine_pkg;
       int unsigned w_before;
 
       run_dma_job(.tag({tag, "_valid"}), .opq_words(16), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       cnt_input_before = vif.cnt_input_w;
       cnt_bytes_before = vif.cnt_bytes_written;
@@ -3549,7 +3549,7 @@ package rdma_dma_engine_pkg;
       w_before = env.scb.w_count;
       run_dma_job(.tag({tag, "_align"}), .seg0_addr(64'h0000_0000_0010_0001),
                   .opq_words(0), .send_eoe(1'b0),
-                  .sqe_id(sqe_id + 16'd1),
+                  .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd100),
                   .timeout_cycles(300000));
       check_status_bit({tag, "_align"}, "status[ALIGN_ERR]",
@@ -3564,14 +3564,14 @@ package rdma_dma_engine_pkg;
 
     task run_error_consecutive_align_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < 5; idx++) begin
         run_dma_job(.tag($sformatf("%s_align%0d", tag, idx)),
                     .seg0_addr(64'h0000_0000_0010_0001 + idx),
                     .opq_words(0), .send_eoe(1'b0),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx[31:0]),
                     .timeout_cycles(300000));
         check_status_bit($sformatf("%s_align%0d", tag, idx),
@@ -3607,7 +3607,7 @@ package rdma_dma_engine_pkg;
     task run_error_reset_writer_state_case(
       input string tag,
       input bit [3:0] target_state,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no,
       input bit require_awvalid = 1'b0
     );
@@ -3618,7 +3618,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       if (target_state == 4'd1) begin
         if (vif.dbg1_writer_state !== 4'd1)
           `uvm_error(tag, $sformatf("WR_PROGRAMMING not observed, got=%0d",
@@ -3643,7 +3643,7 @@ package rdma_dma_engine_pkg;
       vif.job_seg0_span <= 64'h0000_0000_0000_1000;
       vif.job_seg1_addr <= 64'h0000_0000_0000_0000;
       vif.job_seg1_span <= 64'h0000_0000_0000_0000;
-      vif.job_sqe_id <= 16'h0222;
+      vif.job_rqe_id <= 16'h0222;
       vif.job_opcode <= 16'h0001;
       vif.job_req <= 1'b1;
       vif.reset_n <= 1'b0;
@@ -3659,7 +3659,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_reset_on_job_done_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -3667,13 +3667,13 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       vif.preload_counter_input_near_max();
       drive_direct_job_req(64'h0000_0000_0010_0000,
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_words(8, 1'b1, sequence_no, next_lineage_id);
       wait_for_done(300000);
@@ -3716,13 +3716,13 @@ package rdma_dma_engine_pkg;
 
     task run_error_reset_then_job_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       apply_midrun_reset();
       wait_cycles(1);
       run_dma_job(.tag({tag, "_post_reset"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
       check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
@@ -3731,11 +3731,11 @@ package rdma_dma_engine_pkg;
 
     task run_error_reset_clears_counters_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_pre_reset"}), .opq_words(32),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       if ((vif.cnt_input_w == 32'd0) || (vif.cnt_bytes_written == 32'd0))
         `uvm_error(tag, "pre-reset counters did not accumulate")
@@ -3749,13 +3749,13 @@ package rdma_dma_engine_pkg;
       input int signed error_index,
       input int unsigned opq_words,
       input bit [63:0] seg0_span = 64'h0000_0000_0000_1000,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       env.axi_cfg.bresp_error_index = error_index;
       env.axi_cfg.bresp_default = axi4_write_pkg::AXI_RESP_OKAY;
       run_dma_job(.tag(tag), .seg0_span(seg0_span), .opq_words(opq_words),
-                  .send_eoe(1'b1), .bresp(bresp), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .bresp(bresp), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(500000));
       check_status_bit(tag, "status[AXI_ERR]", 6, 1'b1);
       check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
@@ -3764,21 +3764,21 @@ package rdma_dma_engine_pkg;
 
     task run_error_burst_size_five_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_aw_observed_job(.tag(tag), .obs_words(40), .obs_send_eoe(1'b1),
                           .expected_aw_count(1),
                           .check_first_awlen(1'b1),
                           .expected_first_awlen(4),
-                          .sqe_id(sqe_id),
+                          .rqe_id(rqe_id),
                           .sequence_no(sequence_no),
                           .timeout_cycles(300000));
     endtask
 
     task run_error_tlast_without_tvalid_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [31:0] input_before;
@@ -3790,13 +3790,13 @@ package rdma_dma_engine_pkg;
       if (env.scb.aw_count != 0 || env.scb.w_count != 0)
         `uvm_error(tag, "tlast without tvalid produced AXI traffic")
       run_dma_job(.tag({tag, "_clean"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
     endtask
 
     task run_error_sop_mid_event_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -3804,12 +3804,12 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd12, 32'd12, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       drive_direct_job_req(64'h0000_0000_0010_0000,
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_opq_word({8'h00, sequence_no[15:0], 8'h00},
                             1'b0, sequence_no, next_lineage_id + 1);
@@ -3842,7 +3842,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_ignored_xdata_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [31:0] input_before;
@@ -3862,17 +3862,17 @@ package rdma_dma_engine_pkg;
       check_u32_equal(tag, "cnt_input_w after ignored X data",
                       vif.cnt_input_w, input_before);
       run_dma_job(.tag({tag, "_clean"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
     endtask
 
     task run_error_single_beat_event_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag(tag), .opq_words(1), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       check_u32_equal(tag, "cnt_input_w", vif.cnt_input_w, 32'd1);
       check_u32_equal(tag, "cnt_bytes_written", vif.cnt_bytes_written,
@@ -3882,7 +3882,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_overlap_job_req_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -3890,13 +3890,13 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd256, 32'd256, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       env.axi_cfg.wready_lag = 64;
       drive_direct_job_req(64'h0000_0000_0010_0000,
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_words(64, 1'b1, sequence_no, next_lineage_id);
       wait_for_dbg1_state(tag, 4'd3);
@@ -3904,7 +3904,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id + 16'd1, 16'h0001, 1);
+                           rqe_id + 16'd1, 16'h0001, 1);
       env.axi_cfg.wready_lag = 0;
       wait_for_done(300000);
       wait_cycles(2);
@@ -3914,7 +3914,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_invalid_opcode_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -3922,12 +3922,12 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       drive_direct_job_req(64'h0000_0000_0010_0000,
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'hdead, 1);
+                           rqe_id, 16'hdead, 1);
       wait_cycles(2);
       drive_direct_words(8, 1'b1, sequence_no, next_lineage_id);
       wait_for_done(300000);
@@ -3939,19 +3939,19 @@ package rdma_dma_engine_pkg;
 
     task run_error_ten_align_then_valid_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < 10; idx++) begin
         run_dma_job(.tag($sformatf("%s_align%0d", tag, idx)),
                     .seg0_addr(64'h0000_0000_0010_0001 + idx),
                     .opq_words(0), .send_eoe(1'b0),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
       end
       run_dma_job(.tag({tag, "_valid"}), .opq_words(8), .send_eoe(1'b1),
-                  .sqe_id(sqe_id + 16'd10),
+                  .rqe_id(rqe_id + 16'd10),
                   .sequence_no(sequence_no + 32'd10),
                   .timeout_cycles(300000));
       check_u32_equal(tag, "job_done_count", env.scb.job_done_count, 32'd11);
@@ -3961,7 +3961,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_large_span_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_aw_observed_job(.tag(tag),
@@ -3971,7 +3971,7 @@ package rdma_dma_engine_pkg;
                           .obs_send_eoe(1'b1),
                           .expected_aw_count(1),
                           .expected_first_aw(64'h0000_0000_8000_0000),
-                          .sqe_id(sqe_id),
+                          .rqe_id(rqe_id),
                           .sequence_no(sequence_no),
                           .timeout_cycles(300000));
       check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
@@ -3980,17 +3980,17 @@ package rdma_dma_engine_pkg;
 
     task run_error_bresp_recovery_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_bresp_case(.tag({tag, "_slverr"}),
                            .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
                            .error_index(-1),
                            .opq_words(64),
-                           .sqe_id(sqe_id),
+                           .rqe_id(rqe_id),
                            .sequence_no(sequence_no));
       run_dma_job(.tag({tag, "_clean"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
       check_status_bit({tag, "_clean"}, "status[AXI_ERR]", 6, 1'b0);
@@ -4001,15 +4001,15 @@ package rdma_dma_engine_pkg;
 
     task run_error_reset_mid_job_recovery_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_reset_writer_state_case(.tag({tag, "_reset"}),
                                         .target_state(4'd3),
-                                        .sqe_id(sqe_id),
+                                        .rqe_id(rqe_id),
                                         .sequence_no(sequence_no));
       run_dma_job(.tag({tag, "_fresh"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
       check_status_bit({tag, "_fresh"}, "status[EOE]", RDMA_DMA_ST_EOE,
@@ -4020,7 +4020,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_dbg1_bresp_observability_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -4041,7 +4041,7 @@ package rdma_dma_engine_pkg;
                            .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
                            .error_index(-1),
                            .opq_words(64),
-                           .sqe_id(sqe_id),
+                           .rqe_id(rqe_id),
                            .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -4059,7 +4059,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_dbg2_reordered_lineage_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit saw_reordered;
@@ -4067,12 +4067,12 @@ package rdma_dma_engine_pkg;
       saw_reordered = 1'b0;
       expect_simple_status_job(64'd8, 32'd8, 32'd0,
                                single_seg_eoe_status(),
-                               single_seg_status_mask(), sqe_id);
+                               single_seg_status_mask(), rqe_id);
       drive_direct_job_req(64'h0000_0000_0010_0000,
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_opq_word({8'h00, sequence_no[15:0], 8'h00},
                             1'b0, sequence_no, next_lineage_id + 2);
@@ -4090,17 +4090,17 @@ package rdma_dma_engine_pkg;
 
     task run_error_dbg2_duplicate_lineage_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       expect_simple_status_job(64'd8, 32'd8, 32'd0,
                                single_seg_eoe_status(),
-                               single_seg_status_mask(), sqe_id);
+                               single_seg_status_mask(), rqe_id);
       drive_direct_job_req(64'h0000_0000_0010_0000,
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_opq_word({8'h00, sequence_no[15:0], 8'h00},
                             1'b0, sequence_no, next_lineage_id + 1);
@@ -4115,15 +4115,15 @@ package rdma_dma_engine_pkg;
 
     task run_error_dbg2_reset_residual_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_reset_writer_state_case(.tag({tag, "_reset"}),
                                         .target_state(4'd3),
-                                        .sqe_id(sqe_id),
+                                        .rqe_id(rqe_id),
                                         .sequence_no(sequence_no));
       run_dma_job(.tag({tag, "_fresh"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
       if ((env.debug_level >= 2) && (env.scb.dbg2_emit_count != 8))
@@ -4142,7 +4142,7 @@ package rdma_dma_engine_pkg;
     task run_error_clear_during_writer_state_case(
       input string tag,
       input bit [3:0] target_state,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit clear_done;
@@ -4163,7 +4163,7 @@ package rdma_dma_engine_pkg;
                       .send_eoe(1'b1),
                       .wready_lag((target_state == 4'd3) ? 64 : 0),
                       .bvalid_lag((target_state == 4'd4) ? 64 : 1),
-                      .sqe_id(sqe_id), .sequence_no(sequence_no),
+                      .rqe_id(rqe_id), .sequence_no(sequence_no),
                       .timeout_cycles(500000));
         end
       join
@@ -4174,11 +4174,11 @@ package rdma_dma_engine_pkg;
 
     task run_error_clear_back_to_back_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_pre"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       for (int unsigned idx = 0; idx < 5; idx++) begin
         pulse_clear_counters();
@@ -4193,7 +4193,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_clear_at_job_done_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit clear_issued;
@@ -4216,7 +4216,7 @@ package rdma_dma_engine_pkg;
         begin
           run_dma_job(.tag({tag, "_job"}), .opq_words(64),
                       .send_eoe(1'b1), .bvalid_lag(8),
-                      .sqe_id(sqe_id), .sequence_no(sequence_no),
+                      .rqe_id(rqe_id), .sequence_no(sequence_no),
                       .timeout_cycles(500000));
         end
       join
@@ -4227,11 +4227,11 @@ package rdma_dma_engine_pkg;
 
     task run_error_clear_during_halt_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_halt_count_job(.tag(tag), .dropped_words(8),
-                         .sqe_id(sqe_id), .sequence_no(sequence_no),
+                         .rqe_id(rqe_id), .sequence_no(sequence_no),
                          .clear_after_first_halt(1'b1));
       if (vif.cnt_halt == 32'd0)
         `uvm_error(tag, "cnt_halt did not resume counting after clear")
@@ -4241,7 +4241,7 @@ package rdma_dma_engine_pkg;
       input string tag,
       input int unsigned job_count,
       input int unsigned error_period,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned error_jobs;
@@ -4257,7 +4257,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .bresp(inject_error ? axi4_write_pkg::AXI_RESP_SLVERR :
                            axi4_write_pkg::AXI_RESP_OKAY),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
         check_status_bit($sformatf("%s_job%0d", tag, idx),
@@ -4271,7 +4271,7 @@ package rdma_dma_engine_pkg;
       input string tag,
       input int unsigned job_count,
       input int unsigned reset_period,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < job_count; idx++) begin
@@ -4281,7 +4281,7 @@ package rdma_dma_engine_pkg;
         end
         run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
                     .opq_words(4 + (idx % 8)), .send_eoe(1'b1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
       end
@@ -4290,7 +4290,7 @@ package rdma_dma_engine_pkg;
     task run_error_combined_fault_loop_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned align_jobs;
@@ -4311,7 +4311,7 @@ package rdma_dma_engine_pkg;
           run_dma_job(.tag($sformatf("%s_align%0d", tag, idx)),
                       .seg0_addr(64'h0000_0000_0010_0001),
                       .opq_words(0), .send_eoe(1'b0),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
           check_status_bit($sformatf("%s_align%0d", tag, idx),
@@ -4326,7 +4326,7 @@ package rdma_dma_engine_pkg;
                       .bresp(inject_bresp ?
                              axi4_write_pkg::AXI_RESP_SLVERR :
                              axi4_write_pkg::AXI_RESP_OKAY),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
           check_status_bit($sformatf("%s_job%0d", tag, idx),
@@ -4339,13 +4339,13 @@ package rdma_dma_engine_pkg;
 
     task run_error_bresp_ignored_after_reset_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       env.axi_cfg.bresp = axi4_write_pkg::AXI_RESP_SLVERR;
       run_error_reset_writer_state_case(.tag(tag),
                                         .target_state(4'd4),
-                                        .sqe_id(sqe_id),
+                                        .rqe_id(rqe_id),
                                         .sequence_no(sequence_no));
       env.axi_cfg.bresp = axi4_write_pkg::AXI_RESP_OKAY;
       check_reset_defaults(tag);
@@ -4353,14 +4353,14 @@ package rdma_dma_engine_pkg;
 
     task run_error_awready_delay_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_aw_observed_job(.tag(tag), .obs_words(64),
                           .obs_send_eoe(1'b1),
                           .expected_aw_count(1),
                           .obs_awready_lag(64),
-                          .sqe_id(sqe_id),
+                          .rqe_id(rqe_id),
                           .sequence_no(sequence_no),
                           .timeout_cycles(400000));
       check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
@@ -4368,11 +4368,11 @@ package rdma_dma_engine_pkg;
 
     task run_error_wready_delay_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag(tag), .opq_words(64), .send_eoe(1'b1),
-                  .wready_lag(64), .sqe_id(sqe_id),
+                  .wready_lag(64), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(400000));
       check_status_bit(tag, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
     endtask
@@ -4385,7 +4385,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_spurious_b_idle_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned b_count_before;
@@ -4395,26 +4395,26 @@ package rdma_dma_engine_pkg;
       if (env.scb.b_count != b_count_before)
         `uvm_error(tag, "idle spurious B was accepted by the monitor path")
       run_dma_job(.tag({tag, "_clean"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
     endtask
 
     task run_error_spurious_b_during_w_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       env.axi_cfg.spurious_b_during_w_cycles = 1;
       run_dma_job(.tag({tag, "_job"}), .opq_words(128),
                   .send_eoe(1'b1), .wready_lag(64),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(500000));
       check_status_bit({tag, "_job"}, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
     endtask
 
     task run_error_bid_mismatch_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -4434,7 +4434,7 @@ package rdma_dma_engine_pkg;
         end
       join_none
       run_dma_job(.tag(tag), .opq_words(64), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -4444,7 +4444,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_duplicate_bvalid_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned b_count_before;
@@ -4453,7 +4453,7 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.duplicate_b_response_count = 1;
       env.axi_cfg.duplicate_b_delay_cycles = 0;
       run_dma_job(.tag(tag), .opq_words(64), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       if (env.scb.b_count != (b_count_before + 1))
         `uvm_error(tag, "duplicate B response completed an extra handshake")
@@ -4501,7 +4501,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_job_req_held_high_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -4511,14 +4511,14 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       saw_done_while_req = 1'b0;
       @(negedge vif.clk);
       vif.job_seg0_addr <= 64'h0000_0000_0010_0000;
       vif.job_seg0_span <= 64'h0000_0000_0000_1000;
       vif.job_seg1_addr <= 64'h0000_0000_0000_0000;
       vif.job_seg1_span <= 64'h0000_0000_0000_0000;
-      vif.job_sqe_id <= sqe_id;
+      vif.job_rqe_id <= rqe_id;
       vif.job_opcode <= 16'h0001;
       vif.job_req <= 1'b1;
       wait_cycles(2);
@@ -4537,7 +4537,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_job_req_mutating_inputs_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -4546,19 +4546,19 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       @(negedge vif.clk);
       vif.job_seg0_addr <= 64'h0000_0000_0010_0000;
       vif.job_seg0_span <= 64'h0000_0000_0000_1000;
       vif.job_seg1_addr <= 64'h0000_0000_0000_0000;
       vif.job_seg1_span <= 64'h0000_0000_0000_0000;
-      vif.job_sqe_id <= sqe_id;
+      vif.job_rqe_id <= rqe_id;
       vif.job_opcode <= 16'h0001;
       vif.job_req <= 1'b1;
       @(negedge vif.clk);
       vif.job_seg0_addr <= 64'h0000_0000_0010_0001;
       vif.job_seg0_span <= 64'h0000_0000_0000_0000;
-      vif.job_sqe_id <= sqe_id + 16'd1;
+      vif.job_rqe_id <= rqe_id + 16'd1;
       wait_cycles(1);
       drive_direct_words(8, 1'b1, sequence_no, next_lineage_id);
       wait_for_done(300000);
@@ -4567,22 +4567,22 @@ package rdma_dma_engine_pkg;
       wait_cycles(2);
       check_u32_equal(tag, "job_seg0_bytes_written",
                       vif.job_seg0_bytes_written, 32'd32);
-      check_u32_equal(tag, "job_sqe_id_echo",
-                      {16'h0000, vif.job_sqe_id_echo}, {16'h0000, sqe_id});
+      check_u32_equal(tag, "job_rqe_id_echo",
+                      {16'h0000, vif.job_rqe_id_echo}, {16'h0000, rqe_id});
     endtask
 
     task run_error_job_done_req_overlap_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
-      run_error_job_req_held_high_case(.tag(tag), .sqe_id(sqe_id),
+      run_error_job_req_held_high_case(.tag(tag), .rqe_id(rqe_id),
                                        .sequence_no(sequence_no));
     endtask
 
     task run_error_align_then_halt_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_align_refusal_case(.tag({tag, "_align"}),
@@ -4590,16 +4590,16 @@ package rdma_dma_engine_pkg;
                                    .seg0_span(64'h1000),
                                    .seg1_addr(64'h0000_0000_0000_0000),
                                    .seg1_span(64'h0),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       run_halt_count_job(.tag({tag, "_halt"}), .dropped_words(4),
-                         .sqe_id(sqe_id + 16'd1),
+                         .rqe_id(rqe_id + 16'd1),
                          .sequence_no(sequence_no + 32'd1));
     endtask
 
     task run_error_align_with_bresp_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned b_count_before;
@@ -4608,7 +4608,7 @@ package rdma_dma_engine_pkg;
       run_dma_job(.tag(tag), .seg0_addr(64'h0000_0000_0010_0001),
                   .seg0_span(64'h1000), .opq_words(0), .send_eoe(1'b0),
                   .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR, 1'b1);
       check_status_bit(tag, "status[AXI_ERR]", 6, 1'b0);
@@ -4618,7 +4618,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_align_reset_clean_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_align_refusal_case(.tag({tag, "_align"}),
@@ -4626,19 +4626,19 @@ package rdma_dma_engine_pkg;
                                    .seg0_span(64'h1000),
                                    .seg1_addr(64'h0000_0000_0000_0000),
                                    .seg1_span(64'h0),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       apply_midrun_reset();
       check_reset_defaults({tag, "_reset"});
       run_dma_job(.tag({tag, "_clean"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
     endtask
 
     task run_error_clear_during_aw_handshake_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit clear_done;
@@ -4658,7 +4658,7 @@ package rdma_dma_engine_pkg;
         begin
           run_dma_job(.tag({tag, "_job"}), .opq_words(64),
                       .send_eoe(1'b1), .awready_lag(64),
-                      .sqe_id(sqe_id), .sequence_no(sequence_no),
+                      .rqe_id(rqe_id), .sequence_no(sequence_no),
                       .timeout_cycles(500000));
         end
       join
@@ -4701,7 +4701,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_clear_input_increment_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -4711,12 +4711,12 @@ package rdma_dma_engine_pkg;
       expected_status = single_seg_eoe_status();
       status_mask = single_seg_status_mask();
       expect_simple_status_job(64'd32, 32'd32, 32'd0,
-                               expected_status, status_mask, sqe_id);
+                               expected_status, status_mask, rqe_id);
       drive_direct_job_req(64'h0000_0000_0010_0000,
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       lineage_id = next_lineage_id + 1;
       drive_clear_and_opq_word({8'h00, sequence_no[15:0], 8'h00},
@@ -4734,17 +4734,17 @@ package rdma_dma_engine_pkg;
 
     task run_error_clear_halt_race_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_halt_count_job(.tag(tag), .dropped_words(4),
-                         .sqe_id(sqe_id), .sequence_no(sequence_no),
+                         .rqe_id(rqe_id), .sequence_no(sequence_no),
                          .clear_after_first_halt(1'b1));
     endtask
 
     task run_error_opq_stuck_wr_w_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned aw_before;
@@ -4763,7 +4763,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_for_dbg1_state(tag, 4'd2);
       vif.poke_fifo_underrun_after_aw(aw_seen, w_stall_seen);
       wait_cycles(2);
@@ -4789,22 +4789,22 @@ package rdma_dma_engine_pkg;
 
     task run_error_wready_stuck_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_writer_stall_case(.tag(tag), .state(4'd3),
                             .aw_lag(0), .w_lag(512), .b_lag(1),
-                            .sqe_id(sqe_id), .sequence_no(sequence_no));
+                            .rqe_id(rqe_id), .sequence_no(sequence_no));
     endtask
 
     task run_error_bvalid_stuck_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_writer_stall_case(.tag(tag), .state(4'd4),
                             .aw_lag(0), .w_lag(0), .b_lag(512),
-                            .sqe_id(sqe_id), .sequence_no(sequence_no));
+                            .rqe_id(rqe_id), .sequence_no(sequence_no));
     endtask
 
     task run_error_long_idle_no_job_case(input string tag);
@@ -4825,14 +4825,14 @@ package rdma_dma_engine_pkg;
 
     task run_error_bresp_reset_align_valid_chain(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_bresp_case(.tag({tag, "_bresp"}),
                            .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
                            .error_index(-1),
                            .opq_words(32),
-                           .sqe_id(sqe_id),
+                           .rqe_id(rqe_id),
                            .sequence_no(sequence_no));
       apply_midrun_reset();
       check_reset_defaults({tag, "_reset"});
@@ -4841,10 +4841,10 @@ package rdma_dma_engine_pkg;
                                    .seg0_span(64'h1000),
                                    .seg1_addr(64'h0000_0000_0000_0000),
                                    .seg1_span(64'h0),
-                                   .sqe_id(sqe_id + 16'd1),
+                                   .rqe_id(rqe_id + 16'd1),
                                    .sequence_no(sequence_no + 32'd1));
       run_dma_job(.tag({tag, "_valid"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd2),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd2),
                   .sequence_no(sequence_no + 32'd2),
                   .timeout_cycles(300000));
       check_status_bit({tag, "_valid"}, "status[EOE]", RDMA_DMA_ST_EOE,
@@ -4853,11 +4853,11 @@ package rdma_dma_engine_pkg;
 
     task run_error_bresp_halt_eoe_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_halt_count_job(.tag(tag), .dropped_words(8),
-                         .sqe_id(sqe_id), .sequence_no(sequence_no),
+                         .rqe_id(rqe_id), .sequence_no(sequence_no),
                          .bresp(axi4_write_pkg::AXI_RESP_SLVERR));
       check_status_bit(tag, "status[HALT]", RDMA_DMA_ST_HALT, 1'b1);
       check_status_bit(tag, "status[AXI_ERR]", 6, 1'b1);
@@ -4866,7 +4866,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_triple_reset_valid_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < 3; idx++) begin
@@ -4874,7 +4874,7 @@ package rdma_dma_engine_pkg;
         check_reset_defaults($sformatf("%s_reset%0d", tag, idx));
       end
       run_dma_job(.tag({tag, "_valid"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       check_status_bit({tag, "_valid"}, "status[EOE]", RDMA_DMA_ST_EOE,
                        1'b1);
@@ -4882,20 +4882,20 @@ package rdma_dma_engine_pkg;
 
     task run_error_halt_reset_reentry_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_halt_count_job(.tag({tag, "_halt0"}), .dropped_words(4),
-                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+                         .rqe_id(rqe_id), .sequence_no(sequence_no));
       apply_midrun_reset();
       check_reset_defaults({tag, "_reset0"});
       run_halt_count_job(.tag({tag, "_halt1"}), .dropped_words(4),
-                         .sqe_id(sqe_id + 16'd1),
+                         .rqe_id(rqe_id + 16'd1),
                          .sequence_no(sequence_no + 32'd1));
       apply_midrun_reset();
       check_reset_defaults({tag, "_reset1"});
       run_dma_job(.tag({tag, "_valid"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd2),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd2),
                   .sequence_no(sequence_no + 32'd2),
                   .timeout_cycles(300000));
       check_status_bit({tag, "_valid"}, "status[EOE]", RDMA_DMA_ST_EOE,
@@ -4904,7 +4904,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_dbg2_lineage_reset_residual_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned ingress_before_reset;
@@ -4912,12 +4912,12 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.wready_lag = 5000;
       expect_simple_status_job(64'd128, 32'd128, 32'd0,
                                single_seg_eoe_status(),
-                               single_seg_status_mask(), sqe_id);
+                               single_seg_status_mask(), rqe_id);
       drive_direct_job_req(64'h0000_0000_0010_0000,
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_words(32, 1'b0, sequence_no, next_lineage_id);
       wait_cycles(4);
@@ -4928,7 +4928,7 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.wready_lag = 0;
       check_reset_defaults({tag, "_reset"});
       run_dma_job(.tag({tag, "_fresh"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
       if ((env.debug_level >= 2) && (env.scb.dbg2_emit_count != 8))
@@ -4937,14 +4937,14 @@ package rdma_dma_engine_pkg;
 
     task run_error_dbg2_bresp_lineage_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_bresp_case(.tag(tag),
                            .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
                            .error_index(-1),
                            .opq_words(64),
-                           .sqe_id(sqe_id),
+                           .rqe_id(rqe_id),
                            .sequence_no(sequence_no));
       if ((env.debug_level >= 2) && (env.scb.dbg2_emit_count != 64))
         `uvm_error(tag, "DEBUG2 lineage did not close under BRESP error")
@@ -4952,7 +4952,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_dbg2_align_no_traffic_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_align_refusal_case(.tag(tag),
@@ -4960,7 +4960,7 @@ package rdma_dma_engine_pkg;
                                    .seg0_span(64'h1000),
                                    .seg1_addr(64'h0000_0000_0000_0000),
                                    .seg1_span(64'h0),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       if (env.scb.opq_count != 0)
         `uvm_error(tag, "ALIGN_ERR lineage case accepted ingress")
@@ -4970,7 +4970,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_random_fault_profile_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < 100; idx++) begin
@@ -4980,26 +4980,26 @@ package rdma_dma_engine_pkg;
         end else if ((idx % 10) == 0) begin
           run_halt_count_job(.tag($sformatf("%s_halt%0d", tag, idx)),
                              .dropped_words(4),
-                             .sqe_id(sqe_id + idx[15:0]),
+                             .rqe_id(rqe_id + idx[15:0]),
                              .sequence_no(sequence_no + idx));
         end else if ((idx % 5) == 0) begin
           run_dma_job(.tag($sformatf("%s_bresp%0d", tag, idx)),
                       .opq_words(16), .send_eoe(1'b1),
                       .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
         end else begin
           run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
                       .opq_words(8 + ((idx * 7) % 32)),
                       .send_eoe(1'b1),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
         end
       end
       run_dma_job(.tag({tag, "_final"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd100),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd100),
                   .sequence_no(sequence_no + 32'd100),
                   .timeout_cycles(300000));
       check_conservation(tag);
@@ -5007,7 +5007,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_random_align_valid_mix_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned align_jobs;
@@ -5019,7 +5019,7 @@ package rdma_dma_engine_pkg;
           run_dma_job(.tag($sformatf("%s_align%0d", tag, idx)),
                       .seg0_addr(64'h0000_0000_0010_0001),
                       .opq_words(0), .send_eoe(1'b0),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
           check_status_bit(tag, "status[ALIGN_ERR]",
@@ -5028,7 +5028,7 @@ package rdma_dma_engine_pkg;
           run_dma_job(.tag($sformatf("%s_valid%0d", tag, idx)),
                       .opq_words(8 + ((idx * 5) % 32)),
                       .send_eoe(1'b1),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
         end
@@ -5042,7 +5042,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_random_reset_every_n_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned global_idx;
@@ -5055,7 +5055,7 @@ package rdma_dma_engine_pkg;
           run_dma_job(.tag($sformatf("%s_r%0d_j%0d", tag, reset_idx, job_idx)),
                       .opq_words(8 + ((global_idx * 3) % 24)),
                       .send_eoe(1'b1),
-                      .sqe_id(sqe_id + global_idx[15:0]),
+                      .rqe_id(rqe_id + global_idx[15:0]),
                       .sequence_no(sequence_no + global_idx),
                       .timeout_cycles(300000));
           global_idx++;
@@ -5067,7 +5067,7 @@ package rdma_dma_engine_pkg;
         check_reset_defaults($sformatf("%s_reset%0d", tag, reset_idx));
       end
       run_dma_job(.tag({tag, "_final"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + global_idx[15:0]),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + global_idx[15:0]),
                   .sequence_no(sequence_no + global_idx),
                   .timeout_cycles(300000));
       check_status_bit({tag, "_final"}, "status[EOE]", RDMA_DMA_ST_EOE,
@@ -5076,7 +5076,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_random_bresp_rate_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned error_jobs;
@@ -5092,7 +5092,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .bresp(inject_error ? axi4_write_pkg::AXI_RESP_SLVERR :
                                            axi4_write_pkg::AXI_RESP_OKAY),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
       end
@@ -5105,7 +5105,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_random_combined_fault_rate_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned fault_ops;
@@ -5125,14 +5125,14 @@ package rdma_dma_engine_pkg;
           end else if ((idx % 50) == 0) begin
             run_halt_count_job(.tag($sformatf("%s_halt%0d", tag, idx)),
                                .dropped_words(4),
-                               .sqe_id(sqe_id + idx[15:0]),
+                               .rqe_id(rqe_id + idx[15:0]),
                                .sequence_no(sequence_no + idx));
             jobs_since_reset++;
           end else begin
             run_dma_job(.tag($sformatf("%s_bresp%0d", tag, idx)),
                         .opq_words(8), .send_eoe(1'b1),
                         .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
-                        .sqe_id(sqe_id + idx[15:0]),
+                        .rqe_id(rqe_id + idx[15:0]),
                         .sequence_no(sequence_no + idx),
                         .timeout_cycles(300000));
             jobs_since_reset++;
@@ -5141,7 +5141,7 @@ package rdma_dma_engine_pkg;
           run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
                       .opq_words(4 + ((idx * 5) % 16)),
                       .send_eoe(1'b1),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
           jobs_since_reset++;
@@ -5154,7 +5154,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_reset_every_50_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit bad_during_reset;
@@ -5181,7 +5181,7 @@ package rdma_dma_engine_pkg;
       if (bad_during_reset)
         `uvm_error(tag, "aggressive reset window observed non-idle activity")
       run_dma_job(.tag({tag, "_recovery"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       check_status_bit({tag, "_recovery"}, "status[EOE]", RDMA_DMA_ST_EOE,
                        1'b1);
@@ -5189,7 +5189,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_reset_wait_bvalid_no_host_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       env.axi_cfg.awready_lag = 0;
@@ -5199,7 +5199,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0000_1000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       drive_direct_words(64, 1'b1, sequence_no, next_lineage_id);
       wait_for_dbg1_state(tag, 4'd4);
@@ -5209,14 +5209,14 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.bvalid_lag = 1;
       check_reset_defaults(tag);
       run_dma_job(.tag({tag, "_fresh"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
     endtask
 
     task run_error_reset_high_fifo_fill_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned lineage_id;
@@ -5228,7 +5228,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0001_0000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
       lineage_id = next_lineage_id;
       for (int unsigned beat_idx = 0; beat_idx < 192; beat_idx++) begin
@@ -5250,18 +5250,18 @@ package rdma_dma_engine_pkg;
       env.axi_cfg.wready_lag = 0;
       check_reset_defaults(tag);
       run_dma_job(.tag({tag, "_fresh"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
     endtask
 
     task run_error_reset_clear_same_cycle_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_pre"}), .opq_words(32),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       if ((vif.cnt_input_w == 32'd0) || (vif.cnt_bytes_written == 32'd0))
         `uvm_error(tag, "pre-race counters did not accumulate")
@@ -5277,14 +5277,14 @@ package rdma_dma_engine_pkg;
       env.scb.configure_case(case_id, scorecard_path, env.debug_level);
       check_reset_defaults(tag);
       run_dma_job(.tag({tag, "_fresh"}), .opq_words(8),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
     endtask
 
     task run_error_out_of_order_b_edge_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -5313,7 +5313,7 @@ package rdma_dma_engine_pkg;
 
       run_dma_job(.tag(tag), .seg0_span(64'h0000_0000_0000_4000),
                   .opq_words(2048), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(700000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -5327,7 +5327,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_report_align_state_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -5349,7 +5349,7 @@ package rdma_dma_engine_pkg;
                                    .seg0_span(64'h1000),
                                    .seg1_addr(64'h0000_0000_0000_0000),
                                    .seg1_span(64'h0),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -5359,7 +5359,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_status_align_coverage_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_align_refusal_case(.tag(tag),
@@ -5367,64 +5367,64 @@ package rdma_dma_engine_pkg;
                                    .seg0_span(64'h1000),
                                    .seg1_addr(64'h0000_0000_0000_0000),
                                    .seg1_span(64'h0),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR, 1'b1);
     endtask
 
     task run_error_bresp_branch_coverage_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_bresp_case(.tag(tag),
                            .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
                            .error_index(-1),
                            .opq_words(64),
-                           .sqe_id(sqe_id),
+                           .rqe_id(rqe_id),
                            .sequence_no(sequence_no));
     endtask
 
     task run_error_reset_all_writer_states_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       apply_midrun_reset();
       check_reset_defaults({tag, "_idle"});
       run_error_reset_writer_state_case(.tag({tag, "_programming"}),
                                         .target_state(4'd1),
-                                        .sqe_id(sqe_id),
+                                        .rqe_id(rqe_id),
                                         .sequence_no(sequence_no));
       run_error_reset_writer_state_case(.tag({tag, "_aw"}),
                                         .target_state(4'd2),
-                                        .sqe_id(sqe_id + 16'd1),
+                                        .rqe_id(rqe_id + 16'd1),
                                         .sequence_no(sequence_no + 32'd1));
       run_error_reset_writer_state_case(.tag({tag, "_w"}),
                                         .target_state(4'd3),
-                                        .sqe_id(sqe_id + 16'd2),
+                                        .rqe_id(rqe_id + 16'd2),
                                         .sequence_no(sequence_no + 32'd2));
       run_error_reset_writer_state_case(.tag({tag, "_b"}),
                                         .target_state(4'd4),
-                                        .sqe_id(sqe_id + 16'd3),
+                                        .rqe_id(rqe_id + 16'd3),
                                         .sequence_no(sequence_no + 32'd3));
       run_error_reset_on_job_done_case(.tag({tag, "_reporting"}),
-                                       .sqe_id(sqe_id + 16'd4),
+                                       .rqe_id(rqe_id + 16'd4),
                                        .sequence_no(sequence_no + 32'd4));
       run_dma_job(.tag({tag, "_fresh"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd5),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd5),
                   .sequence_no(sequence_no + 32'd5),
                   .timeout_cycles(300000));
     endtask
 
     task run_error_sustained_bresp_one_percent_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_bresp_fault_loop_case(.tag(tag), .job_count(100),
                                       .error_period(100),
-                                      .sqe_id(sqe_id),
+                                      .rqe_id(rqe_id),
                                       .sequence_no(sequence_no));
       check_u32_equal(tag, "job_done_count", env.scb.job_done_count,
                       32'd100);
@@ -5433,7 +5433,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_sustained_reset_one_percent_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned jobs_since_reset;
@@ -5447,7 +5447,7 @@ package rdma_dma_engine_pkg;
         end
         run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
                     .opq_words(4 + (idx % 8)), .send_eoe(1'b1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
         jobs_since_reset++;
@@ -5459,7 +5459,7 @@ package rdma_dma_engine_pkg;
 
     task run_error_sustained_align_one_percent_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned align_jobs;
@@ -5471,7 +5471,7 @@ package rdma_dma_engine_pkg;
           run_dma_job(.tag($sformatf("%s_align%0d", tag, idx)),
                       .seg0_addr(64'h0000_0000_0010_0001),
                       .opq_words(0), .send_eoe(1'b0),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
           check_status_bit($sformatf("%s_align%0d", tag, idx),
@@ -5480,7 +5480,7 @@ package rdma_dma_engine_pkg;
         end else begin
           run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
                       .opq_words(4 + (idx % 8)), .send_eoe(1'b1),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
         end
@@ -5494,40 +5494,40 @@ package rdma_dma_engine_pkg;
 
     task run_error_final_composite_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_status_align_coverage_case(.tag({tag, "_align"}),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(sequence_no));
       run_error_bresp_branch_coverage_case(.tag({tag, "_bresp"}),
-                                           .sqe_id(sqe_id + 16'd1),
+                                           .rqe_id(rqe_id + 16'd1),
                                            .sequence_no(sequence_no + 32'd1));
       run_halt_count_job(.tag({tag, "_halt"}), .dropped_words(4),
-                         .sqe_id(sqe_id + 16'd2),
+                         .rqe_id(rqe_id + 16'd2),
                          .sequence_no(sequence_no + 32'd2));
       run_error_reset_wait_bvalid_no_host_case(.tag({tag, "_reset_b"}),
-                                               .sqe_id(sqe_id + 16'd3),
+                                               .rqe_id(rqe_id + 16'd3),
                                                .sequence_no(sequence_no + 32'd3));
       run_error_duplicate_bvalid_case(.tag({tag, "_dup_b"}),
-                                      .sqe_id(sqe_id + 16'd4),
+                                      .rqe_id(rqe_id + 16'd4),
                                       .sequence_no(sequence_no + 32'd4));
       run_dma_job(.tag({tag, "_closure"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd5),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd5),
                   .sequence_no(sequence_no + 32'd5),
                   .timeout_cycles(300000));
     endtask
 
     task run_error_final_dbg1_lineage_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_dbg1_bresp_observability_case(.tag({tag, "_dbg1_bresp"}),
-                                              .sqe_id(sqe_id),
+                                              .rqe_id(rqe_id),
                                               .sequence_no(sequence_no));
       run_halt_count_job(.tag({tag, "_dbg1_halt"}), .dropped_words(8),
-                         .sqe_id(sqe_id + 16'd1),
+                         .rqe_id(rqe_id + 16'd1),
                          .sequence_no(sequence_no + 32'd1));
       if ((env.debug_level == 1) && (env.scb.dbg2_emit_count != 0))
         `uvm_error(tag, "DEBUG=1 lineage case observed DEBUG2 emissions")
@@ -5535,30 +5535,30 @@ package rdma_dma_engine_pkg;
 
     task run_error_final_dbg2_lineage_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       apply_midrun_reset();
       run_error_dbg2_bresp_lineage_case(.tag({tag, "_bresp"}),
-                                        .sqe_id(sqe_id),
+                                        .rqe_id(rqe_id),
                                         .sequence_no(sequence_no));
       apply_midrun_reset();
       run_error_dbg2_lineage_reset_residual_case(.tag({tag, "_reset"}),
-                                                 .sqe_id(sqe_id + 16'd1),
+                                                 .rqe_id(rqe_id + 16'd1),
                                                  .sequence_no(sequence_no + 32'd1));
       apply_midrun_reset();
       run_error_dbg2_align_no_traffic_case(.tag({tag, "_align"}),
-                                           .sqe_id(sqe_id + 16'd2),
+                                           .rqe_id(rqe_id + 16'd2),
                                            .sequence_no(sequence_no + 32'd2));
       run_dma_job(.tag({tag, "_fresh"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd3),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd3),
                   .sequence_no(sequence_no + 32'd3),
                   .timeout_cycles(300000));
     endtask
 
     task run_phase_b_coverage_closure_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_error_align_refusal_case(.tag({tag, "_align_report"}),
@@ -5566,10 +5566,10 @@ package rdma_dma_engine_pkg;
                                    .seg0_span(64'h0000_0000_0000_1000),
                                    .seg1_addr(64'h0000_0000_0000_0000),
                                    .seg1_span(64'h0000_0000_0000_0000),
-                                   .sqe_id(sqe_id + 16'd15),
+                                   .rqe_id(rqe_id + 16'd15),
                                    .sequence_no(sequence_no + 32'd15));
       run_error_reset_all_writer_states_case(.tag({tag, "_rst_states"}),
-                                             .sqe_id(sqe_id),
+                                             .rqe_id(rqe_id),
                                              .sequence_no(sequence_no));
       run_dma_job(.tag({tag, "_wide_payload"}),
                   .seg0_addr(64'hffff_0000_0010_0000),
@@ -5579,7 +5579,7 @@ package rdma_dma_engine_pkg;
                   .awready_lag(3),
                   .wready_lag(2),
                   .bvalid_lag(17),
-                  .sqe_id(sqe_id + 16'd16),
+                  .rqe_id(rqe_id + 16'd16),
                   .sequence_no(sequence_no + 32'd16),
                   .timeout_cycles(700000));
       run_dma_job(.tag({tag, "_two_seg_payload"}),
@@ -5591,7 +5591,7 @@ package rdma_dma_engine_pkg;
                   .send_eoe(1'b0),
                   .wready_lag(1),
                   .bvalid_lag(9),
-                  .sqe_id(sqe_id + 16'd17),
+                  .rqe_id(rqe_id + 16'd17),
                   .sequence_no(sequence_no + 32'd17),
                   .timeout_cycles(700000));
       run_dma_job(.tag({tag, "_high_addr_span"}),
@@ -5604,7 +5604,7 @@ package rdma_dma_engine_pkg;
                   .awready_lag(2),
                   .wready_lag(1),
                   .bvalid_lag(5),
-                  .sqe_id(sqe_id + 16'd18),
+                  .rqe_id(rqe_id + 16'd18),
                   .sequence_no(sequence_no + 32'd18),
                   .timeout_cycles(700000));
       run_dma_job(.tag({tag, "_low_addr_span"}),
@@ -5617,7 +5617,7 @@ package rdma_dma_engine_pkg;
                   .awready_lag(0),
                   .wready_lag(0),
                   .bvalid_lag(1),
-                  .sqe_id(sqe_id + 16'd19),
+                  .rqe_id(rqe_id + 16'd19),
                   .sequence_no(sequence_no + 32'd19),
                   .timeout_cycles(700000));
     endtask
@@ -5629,7 +5629,7 @@ package rdma_dma_engine_pkg;
       input int unsigned gap_cycles,
       input int unsigned bvalid_lag,
       input int unsigned wready_lag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no,
       input bit expect_halt = 1'b0
     );
@@ -5645,7 +5645,7 @@ package rdma_dma_engine_pkg;
                               .words_per_event(words_per_event),
                               .gap_cycles(gap_cycles),
                               .seg0_span(span_bytes),
-                              .sqe_id(sqe_id),
+                              .rqe_id(rqe_id),
                               .sequence_no(sequence_no),
                               .wready_lag(wready_lag),
                               .bvalid_lag(bvalid_lag),
@@ -5665,7 +5665,7 @@ package rdma_dma_engine_pkg;
       input int unsigned idle_after_each,
       input int unsigned wready_lag,
       input int unsigned bvalid_lag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no,
       input bit expect_halt = 1'b0
     );
@@ -5676,7 +5676,7 @@ package rdma_dma_engine_pkg;
       run_dma_job(.tag(tag), .seg0_span(span_bytes),
                   .opq_words(opq_words), .send_eoe(1'b1),
                   .wready_lag(wready_lag), .bvalid_lag(bvalid_lag),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .idle_after_each(idle_after_each),
                   .timeout_cycles(1500000));
       if (!expect_halt && (vif.cnt_halt != 32'h0))
@@ -5693,10 +5693,10 @@ package rdma_dma_engine_pkg;
       input int unsigned words_per_job,
       input bit two_segment,
       input bit mixed_span,
-      input bit random_sqe,
+      input bit random_rqe,
       input int unsigned gap_cycles,
       input bit variable_lag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < job_count; idx++) begin
@@ -5705,7 +5705,7 @@ package rdma_dma_engine_pkg;
         int unsigned words_v;
         int unsigned bvalid_v;
         int unsigned idle_v;
-        bit [15:0] sqe_v;
+        bit [15:0] rqe_v;
 
         words_v = words_per_job;
         seg0_span_v = 64'h1000;
@@ -5743,15 +5743,15 @@ package rdma_dma_engine_pkg;
 
         bvalid_v = variable_lag ? (1 + ((idx * 37) % 250)) : 1;
         idle_v = (gap_cycles == 0) ? 0 : (idx % 3);
-        sqe_v = random_sqe ? (16'h4000 ^ (idx[15:0] * 16'h0123)) :
-                (sqe_id + idx[15:0]);
+        rqe_v = random_rqe ? (16'h4000 ^ (idx[15:0] * 16'h0123)) :
+                (rqe_id + idx[15:0]);
         run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
                     .seg0_span(seg0_span_v),
                     .seg1_span(seg1_span_v),
                     .opq_words(words_v),
                     .send_eoe(1'b1),
                     .bvalid_lag(bvalid_v),
-                    .sqe_id(sqe_v),
+                    .rqe_id(rqe_v),
                     .sequence_no(sequence_no + idx),
                     .idle_after_each(idle_v),
                     .timeout_cycles(700000));
@@ -5772,7 +5772,7 @@ package rdma_dma_engine_pkg;
       input int unsigned min_avg_awlen_milli,
       input int unsigned max_avg_awlen_milli,
       input int unsigned min_util_milli,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -5805,7 +5805,7 @@ package rdma_dma_engine_pkg;
       run_dma_job(.tag(tag), .seg0_span(span_bytes),
                   .opq_words(opq_words), .send_eoe(1'b1),
                   .wready_lag(wready_lag), .bvalid_lag(bvalid_lag),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .idle_after_each(idle_after_each),
                   .timeout_cycles(900000));
       stop_monitor = 1'b1;
@@ -5835,7 +5835,7 @@ package rdma_dma_engine_pkg;
       input int unsigned wready_lag,
       input int unsigned bvalid_lag,
       input int unsigned min_max_level,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -5863,7 +5863,7 @@ package rdma_dma_engine_pkg;
       run_dma_job(.tag(tag), .seg0_span(span_bytes),
                   .opq_words(opq_words), .send_eoe(1'b1),
                   .wready_lag(wready_lag), .bvalid_lag(bvalid_lag),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(900000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -5878,11 +5878,11 @@ package rdma_dma_engine_pkg;
 
     task run_profile_counter_clear_conservation_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_pre_clear"}), .opq_words(64),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       if ((vif.cnt_input_w == 32'd0) || (vif.cnt_bytes_written == 32'd0))
         `uvm_error(tag, "pre-clear counters did not accumulate")
@@ -5894,7 +5894,7 @@ package rdma_dma_engine_pkg;
       check_u32_equal(tag, "cnt_eoe_observed after clear",
                       vif.cnt_eoe_observed, 32'd0);
       run_dma_job(.tag({tag, "_post_clear"}), .opq_words(64),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
       check_conservation(tag);
@@ -5902,7 +5902,7 @@ package rdma_dma_engine_pkg;
 
     task run_profile_halt_one_of_five_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [31:0] halt_before;
@@ -5911,13 +5911,13 @@ package rdma_dma_engine_pkg;
       for (int unsigned idx = 0; idx < 2; idx++) begin
         run_dma_job(.tag($sformatf("%s_clean%0d", tag, idx)),
                     .opq_words(16), .send_eoe(1'b1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
       end
       halt_before = vif.cnt_halt;
       run_halt_count_job(.tag({tag, "_halt"}), .dropped_words(16),
-                         .sqe_id(sqe_id + 16'd2),
+                         .rqe_id(rqe_id + 16'd2),
                          .sequence_no(sequence_no + 32'd2));
       halt_after = vif.cnt_halt;
       if (halt_after <= halt_before)
@@ -5925,7 +5925,7 @@ package rdma_dma_engine_pkg;
       for (int unsigned idx = 3; idx < 5; idx++) begin
         run_dma_job(.tag($sformatf("%s_clean%0d", tag, idx)),
                     .opq_words(16), .send_eoe(1'b1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
       end
@@ -5940,7 +5940,7 @@ package rdma_dma_engine_pkg;
       input int unsigned bvalid_lag,
       input int unsigned min_cycles,
       input int unsigned max_cycles,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -5962,7 +5962,7 @@ package rdma_dma_engine_pkg;
                                    .idle_after_each(0),
                                    .wready_lag(wready_lag),
                                    .bvalid_lag(bvalid_lag),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -5979,7 +5979,7 @@ package rdma_dma_engine_pkg;
       input string tag,
       input int unsigned job_count,
       input int unsigned words_per_job,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -6002,10 +6002,10 @@ package rdma_dma_engine_pkg;
                                   .words_per_job(words_per_job),
                                   .two_segment(1'b0),
                                   .mixed_span(1'b0),
-                                  .random_sqe(1'b0),
+                                  .random_rqe(1'b0),
                                   .gap_cycles(0),
                                   .variable_lag(1'b0),
-                                  .sqe_id(sqe_id),
+                                  .rqe_id(rqe_id),
                                   .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -6016,7 +6016,7 @@ package rdma_dma_engine_pkg;
 
     task run_profile_halt_latency_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned clean_cycles;
@@ -6035,7 +6035,7 @@ package rdma_dma_engine_pkg;
         end
       join_none
       run_dma_job(.tag({tag, "_clean"}), .opq_words(128),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -6052,7 +6052,7 @@ package rdma_dma_engine_pkg;
         end
       join_none
       run_halt_count_job(.tag({tag, "_halt"}), .dropped_words(32),
-                         .sqe_id(sqe_id + 16'd1),
+                         .rqe_id(rqe_id + 16'd1),
                          .sequence_no(sequence_no + 32'd1));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -6067,7 +6067,7 @@ package rdma_dma_engine_pkg;
       input int unsigned target_level,
       input int unsigned hold_cycles,
       input bit expect_almost_full,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [15:0] expected_status;
@@ -6083,7 +6083,7 @@ package rdma_dma_engine_pkg;
       accepted_words = target_level * RDMA_DMA_OPQ_PER_BEAT;
       expect_simple_status_job(64'(accepted_words + 1) * 64'd4,
                                32'(accepted_words + 1) * 32'd4,
-                               32'd0, expected_status, status_mask, sqe_id);
+                               32'd0, expected_status, status_mask, rqe_id);
       env.axi_cfg.awready_lag = 0;
       env.axi_cfg.wready_lag = 50000;
       env.axi_cfg.bvalid_lag = 1;
@@ -6091,7 +6091,7 @@ package rdma_dma_engine_pkg;
                            64'h0000_0000_0001_0000,
                            64'h0000_0000_0000_0000,
                            64'h0000_0000_0000_0000,
-                           sqe_id, 16'h0001, 1);
+                           rqe_id, 16'h0001, 1);
       wait_cycles(2);
 
       lineage_id = next_lineage_id;
@@ -6144,14 +6144,14 @@ package rdma_dma_engine_pkg;
 
     task run_profile_fifo_oscillation_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
-      run_fifo_fill_drain_case(.tag({tag, "_cycle0"}), .sqe_id(sqe_id),
+      run_fifo_fill_drain_case(.tag({tag, "_cycle0"}), .rqe_id(rqe_id),
                                .check_fill(1'b1),
                                .check_empty_after_done(1'b1),
                                .sequence_no(sequence_no));
-      run_fifo_fill_drain_case(.tag({tag, "_cycle1"}), .sqe_id(sqe_id + 16'd1),
+      run_fifo_fill_drain_case(.tag({tag, "_cycle1"}), .rqe_id(rqe_id + 16'd1),
                                .check_fill(1'b1),
                                .check_empty_after_done(1'b1),
                                .sequence_no(sequence_no + 32'd1));
@@ -6161,7 +6161,7 @@ package rdma_dma_engine_pkg;
     task run_profile_dbg1_invariant_soak_case(
       input string tag,
       input int unsigned soak_cycles,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit invariant_bad;
@@ -6175,10 +6175,10 @@ package rdma_dma_engine_pkg;
                                       .words_per_job(128),
                                       .two_segment(1'b0),
                                       .mixed_span(1'b1),
-                                      .random_sqe(1'b1),
+                                      .random_rqe(1'b1),
                                       .gap_cycles(1),
                                       .variable_lag(1'b1),
-                                      .sqe_id(sqe_id),
+                                      .rqe_id(rqe_id),
                                       .sequence_no(sequence_no));
         end
         begin
@@ -6203,7 +6203,7 @@ package rdma_dma_engine_pkg;
 
     task run_profile_halt_accounting_soak_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [31:0] halt_before;
@@ -6211,7 +6211,7 @@ package rdma_dma_engine_pkg;
 
       halt_before = vif.cnt_halt;
       run_halt_count_job(.tag(tag), .dropped_words(64),
-                         .sqe_id(sqe_id), .sequence_no(sequence_no));
+                         .rqe_id(rqe_id), .sequence_no(sequence_no));
       halt_after = vif.cnt_halt;
       if ((halt_after - halt_before) < 32'd64)
         `uvm_error(tag, $sformatf("cnt_halt delta got=%0d expected >=64",
@@ -6223,7 +6223,7 @@ package rdma_dma_engine_pkg;
 
     task run_profile_fifo_histogram_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -6253,7 +6253,7 @@ package rdma_dma_engine_pkg;
                                    .idle_after_each(0),
                                    .wready_lag(8),
                                    .bvalid_lag(32),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -6264,7 +6264,7 @@ package rdma_dma_engine_pkg;
     task run_profile_random_host_lag_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < job_count; idx++) begin
@@ -6275,7 +6275,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .wready_lag(lag_v),
                     .bvalid_lag(1 + ((idx * 23) % 100)),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(700000));
       end
@@ -6287,7 +6287,7 @@ package rdma_dma_engine_pkg;
     task run_profile_random_bvalid_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -6312,7 +6312,7 @@ package rdma_dma_engine_pkg;
                     .opq_words(32 + ((idx * 11) % 96)),
                     .send_eoe(1'b1),
                     .bvalid_lag(bvalid_v),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(900000));
       end
@@ -6329,7 +6329,7 @@ package rdma_dma_engine_pkg;
     task run_profile_random_idle_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < job_count; idx++) begin
@@ -6339,7 +6339,7 @@ package rdma_dma_engine_pkg;
                     .opq_words(16 + ((idx * 13) % 80)),
                     .send_eoe(1'b1),
                     .idle_after_each(idle_v),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(900000));
       end
@@ -6351,7 +6351,7 @@ package rdma_dma_engine_pkg;
     task run_profile_random_combo_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < job_count; idx++) begin
@@ -6368,7 +6368,7 @@ package rdma_dma_engine_pkg;
                     .idle_after_each(idle_v),
                     .wready_lag(wready_v),
                     .bvalid_lag(bvalid_v),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(900000));
       end
@@ -6382,7 +6382,7 @@ package rdma_dma_engine_pkg;
       input int unsigned job_count,
       input int unsigned wready_lag,
       input int unsigned words_per_job,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < job_count; idx++) begin
@@ -6391,7 +6391,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .wready_lag(wready_lag),
                     .bvalid_lag(1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(1500000));
       end
@@ -6405,7 +6405,7 @@ package rdma_dma_engine_pkg;
       input int unsigned job_count,
       input int unsigned max_lag,
       input int unsigned words_per_job,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < job_count; idx++) begin
@@ -6417,7 +6417,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .wready_lag(lag_v),
                     .bvalid_lag(1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(1600000));
       end
@@ -6431,7 +6431,7 @@ package rdma_dma_engine_pkg;
       input int unsigned job_count,
       input int unsigned bvalid_lag,
       input int unsigned words_per_job,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < job_count; idx++) begin
@@ -6440,7 +6440,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .wready_lag(0),
                     .bvalid_lag(bvalid_lag),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(1600000));
       end
@@ -6454,7 +6454,7 @@ package rdma_dma_engine_pkg;
       input int unsigned job_count,
       input int unsigned idle_after_each,
       input int unsigned words_per_job,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [31:0] halt_before;
@@ -6467,7 +6467,7 @@ package rdma_dma_engine_pkg;
                     .idle_after_each(idle_after_each),
                     .wready_lag(0),
                     .bvalid_lag(1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(500000));
       end
@@ -6481,7 +6481,7 @@ package rdma_dma_engine_pkg;
     task run_profile_bursty_input_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -6510,7 +6510,7 @@ package rdma_dma_engine_pkg;
                     .idle_after_each((idx % 2) == 0 ? 0 : 9),
                     .wready_lag(1),
                     .bvalid_lag(1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(700000));
       end
@@ -6526,7 +6526,7 @@ package rdma_dma_engine_pkg;
     task run_profile_output_bursty_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -6554,7 +6554,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .wready_lag((idx % 4) == 0 ? 200 : 0),
                     .bvalid_lag(1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(900000));
       end
@@ -6570,7 +6570,7 @@ package rdma_dma_engine_pkg;
     task run_profile_random_rate_bound_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -6602,7 +6602,7 @@ package rdma_dma_engine_pkg;
                     .idle_after_each(idle_v),
                     .wready_lag(wready_v),
                     .bvalid_lag(bvalid_v),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(1200000));
       end
@@ -6652,7 +6652,7 @@ package rdma_dma_engine_pkg;
                     .idle_after_each(idle_after_each),
                     .wready_lag(wready_lag),
                     .bvalid_lag(1),
-                    .sqe_id(16'(16'h6000 ^ seed[15:0] ^ idx[15:0])),
+                    .rqe_id(16'(16'h6000 ^ seed[15:0] ^ idx[15:0])),
                     .sequence_no(32'(seed * 1000 + idx)),
                     .timeout_cycles(500000));
       end
@@ -6717,7 +6717,7 @@ package rdma_dma_engine_pkg;
       input string tag,
       input int unsigned seed_a,
       input int unsigned seed_b,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [31:0] halt_before;
@@ -6729,13 +6729,13 @@ package rdma_dma_engine_pkg;
       halt_before = vif.cnt_halt;
       run_halt_count_job(.tag({tag, "_seed_a"}),
                          .dropped_words(32),
-                         .sqe_id(16'(sqe_id ^ seed_a[15:0])),
+                         .rqe_id(16'(rqe_id ^ seed_a[15:0])),
                          .sequence_no(sequence_no + seed_a));
       halt_a = vif.cnt_halt - halt_before;
       halt_before = vif.cnt_halt;
       run_halt_count_job(.tag({tag, "_seed_b"}),
                          .dropped_words(32),
-                         .sqe_id(16'(sqe_id ^ seed_b[15:0])),
+                         .rqe_id(16'(rqe_id ^ seed_b[15:0])),
                          .sequence_no(sequence_no + seed_b));
       halt_b = vif.cnt_halt - halt_before;
       if ((halt_a == 32'd0) || (halt_b == 32'd0))
@@ -6777,7 +6777,7 @@ package rdma_dma_engine_pkg;
                     .idle_after_each((idx + seed) % 3),
                     .wready_lag(0),
                     .bvalid_lag(1),
-                    .sqe_id(16'(16'h7000 ^ seed[15:0] ^ idx[15:0])),
+                    .rqe_id(16'(16'h7000 ^ seed[15:0] ^ idx[15:0])),
                     .sequence_no(32'(seed * 1000 + idx)),
                     .timeout_cycles(300000));
         stop_monitor = 1'b1;
@@ -6830,7 +6830,7 @@ package rdma_dma_engine_pkg;
       input string tag,
       input int unsigned opq_words,
       input int unsigned max_residual,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -6858,7 +6858,7 @@ package rdma_dma_engine_pkg;
       run_profile_single_load_case(.tag(tag), .opq_words(opq_words),
                                    .idle_after_each(0),
                                    .wready_lag(0), .bvalid_lag(1),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -6868,26 +6868,26 @@ package rdma_dma_engine_pkg;
 
     task run_profile_debug2_halt_scale_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_profile_single_load_case(.tag({tag, "_load"}), .opq_words(100000),
                                    .idle_after_each(0),
                                    .wready_lag(0), .bvalid_lag(1),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       run_dbg2_halt_residual_case(.tag({tag, "_halt"}),
-                                  .sqe_id(sqe_id + 16'd1),
+                                  .rqe_id(rqe_id + 16'd1),
                                   .sequence_no(sequence_no + 32'd1));
     endtask
 
     task run_profile_counter_clear_replay_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_pre"}), .opq_words(64), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       if ((vif.cnt_input_w == 32'd0) || (vif.cnt_bytes_written == 32'd0))
         `uvm_error(tag, "pre-clear counters did not accumulate")
@@ -6897,7 +6897,7 @@ package rdma_dma_engine_pkg;
                       vif.cnt_bytes_written, 32'd0);
       check_u32_equal(tag, "cnt_halt after clear", vif.cnt_halt, 32'd0);
       run_dma_job(.tag({tag, "_post"}), .opq_words(64), .send_eoe(1'b1),
-                  .sqe_id(sqe_id + 16'd1),
+                  .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
       if ((env.debug_level >= 2) && (env.scb.dbg2_emit_count == 0))
@@ -6909,7 +6909,7 @@ package rdma_dma_engine_pkg;
       input string tag,
       input int unsigned checkpoint_count,
       input int unsigned words_per_checkpoint,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < checkpoint_count; idx++) begin
@@ -6917,7 +6917,7 @@ package rdma_dma_engine_pkg;
                                      .opq_words(words_per_checkpoint),
                                      .idle_after_each(0),
                                      .wready_lag(0), .bvalid_lag(1),
-                                     .sqe_id(sqe_id + idx[15:0]),
+                                     .rqe_id(rqe_id + idx[15:0]),
                                      .sequence_no(sequence_no + idx));
         if ((env.debug_level >= 2) &&
             (env.scb.opq_count != env.scb.dbg2_emit_count))
@@ -6932,7 +6932,7 @@ package rdma_dma_engine_pkg;
       input string tag,
       input int unsigned opq_words,
       input bit [7:0] expected_awlen,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -6957,7 +6957,7 @@ package rdma_dma_engine_pkg;
       run_profile_single_load_case(.tag(tag), .opq_words(opq_words),
                                    .idle_after_each(0),
                                    .wready_lag(0), .bvalid_lag(1),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -6971,12 +6971,12 @@ package rdma_dma_engine_pkg;
     task run_profile_fifo_threshold_hammer_case(
       input string tag,
       input int unsigned iteration_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < iteration_count; idx++) begin
         run_fifo_fill_drain_case(.tag($sformatf("%s_iter%0d", tag, idx)),
-                                 .sqe_id(sqe_id + idx[15:0]),
+                                 .rqe_id(rqe_id + idx[15:0]),
                                  .check_fill(1'b1),
                                  .check_empty_after_done(1'b1),
                                  .sequence_no(sequence_no + idx));
@@ -6992,7 +6992,7 @@ package rdma_dma_engine_pkg;
       input int unsigned total_words,
       input bit expect_full,
       input bit expect_boundary,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       job_single_segment_sequence job_seq;
@@ -7021,7 +7021,7 @@ package rdma_dma_engine_pkg;
       job_seq.seg0_span = seg0_span;
       job_seq.seg1_addr = 64'h0000_0000_0041_0000;
       job_seq.seg1_span = seg1_span;
-      job_seq.sqe_id = sqe_id;
+      job_seq.rqe_id = rqe_id;
       job_seq.opcode = 16'h0001;
       job_seq.start(env.job_agent_h.sequencer);
       wait_cycles(2);
@@ -7095,7 +7095,7 @@ package rdma_dma_engine_pkg;
       expected_status[RDMA_DMA_ST_SEG_BOUNDARY_HIT] = expect_boundary;
       expected_status[RDMA_DMA_ST_SEG0_ONLY] = (seg1_span == 64'h0);
       env.scb.expect_job(expected_total, expected_seg0, expected_seg1,
-                         expected_status, status_mask, sqe_id);
+                         expected_status, status_mask, rqe_id);
 
       while (accepted_words < total_words) begin
         accepted_words++;
@@ -7121,11 +7121,11 @@ package rdma_dma_engine_pkg;
 
     task run_profile_clear_during_reset_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_dma_job(.tag({tag, "_pre"}), .opq_words(64), .send_eoe(1'b1),
-                  .sqe_id(sqe_id), .sequence_no(sequence_no),
+                  .rqe_id(rqe_id), .sequence_no(sequence_no),
                   .timeout_cycles(300000));
       if ((vif.cnt_input_w == 32'd0) || (vif.cnt_bytes_written == 32'd0))
         `uvm_error(tag, "pre-reset counters did not accumulate")
@@ -7145,7 +7145,7 @@ package rdma_dma_engine_pkg;
                       vif.cnt_bytes_written, 32'd0);
       check_u32_equal(tag, "cnt_halt after reset clear", vif.cnt_halt, 32'd0);
       run_dma_job(.tag({tag, "_post"}), .opq_words(32), .send_eoe(1'b1),
-                  .sqe_id(sqe_id + 16'd1),
+                  .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
       check_conservation(tag);
@@ -7154,7 +7154,7 @@ package rdma_dma_engine_pkg;
     task run_profile_aw_to_w_latency_metric_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -7192,7 +7192,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .wready_lag(0),
                     .bvalid_lag(1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
       end
@@ -7209,7 +7209,7 @@ package rdma_dma_engine_pkg;
     task run_profile_wlast_to_bvalid_metric_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -7247,7 +7247,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .wready_lag(0),
                     .bvalid_lag(8),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
       end
@@ -7264,7 +7264,7 @@ package rdma_dma_engine_pkg;
     task run_profile_job_req_to_aw_metric_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -7302,7 +7302,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .wready_lag(0),
                     .bvalid_lag(1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
       end
@@ -7319,7 +7319,7 @@ package rdma_dma_engine_pkg;
     task run_profile_b_to_done_metric_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -7357,7 +7357,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .wready_lag(0),
                     .bvalid_lag(2),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
       end
@@ -7372,7 +7372,7 @@ package rdma_dma_engine_pkg;
     task run_profile_awlen_distribution_case(
       input string tag,
       input int unsigned min_bursts,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -7405,19 +7405,19 @@ package rdma_dma_engine_pkg;
       run_profile_single_load_case(.tag({tag, "_max"}), .opq_words(128000),
                                    .idle_after_each(0),
                                    .wready_lag(0), .bvalid_lag(1),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       for (int unsigned idx = 0; idx < 8; idx++) begin
         run_dma_job(.tag($sformatf("%s_short%0d", tag, idx)),
                     .opq_words(8),
                     .send_eoe(1'b1),
-                    .sqe_id(sqe_id + 16'd1 + idx[15:0]),
+                    .rqe_id(rqe_id + 16'd1 + idx[15:0]),
                     .sequence_no(sequence_no + 32'd1 + idx),
                     .timeout_cycles(300000));
         run_dma_job(.tag($sformatf("%s_mid%0d", tag, idx)),
                     .opq_words(64),
                     .send_eoe(1'b1),
-                    .sqe_id(sqe_id + 16'd16 + idx[15:0]),
+                    .rqe_id(rqe_id + 16'd16 + idx[15:0]),
                     .sequence_no(sequence_no + 32'd16 + idx),
                     .timeout_cycles(300000));
       end
@@ -7434,7 +7434,7 @@ package rdma_dma_engine_pkg;
     task run_profile_fifo_occupancy_histogram_case(
       input string tag,
       input int unsigned opq_words,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -7472,7 +7472,7 @@ package rdma_dma_engine_pkg;
       run_profile_single_load_case(.tag(tag), .opq_words(opq_words),
                                    .idle_after_each(0),
                                    .wready_lag(8), .bvalid_lag(8),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -7487,7 +7487,7 @@ package rdma_dma_engine_pkg;
     task run_profile_fifo_convergence_case(
       input string tag,
       input int unsigned opq_words,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -7515,7 +7515,7 @@ package rdma_dma_engine_pkg;
           run_profile_single_load_case(.tag(tag), .opq_words(opq_words),
                                        .idle_after_each(0),
                                        .wready_lag(8), .bvalid_lag(8),
-                                       .sqe_id(sqe_id),
+                                       .rqe_id(rqe_id),
                                        .sequence_no(sequence_no));
         end
       join
@@ -7536,7 +7536,7 @@ package rdma_dma_engine_pkg;
     task run_profile_halt_rate_convergence_case(
       input string tag,
       input int unsigned sample_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit [31:0] deltas [64];
@@ -7546,7 +7546,7 @@ package rdma_dma_engine_pkg;
         before_halt = vif.cnt_halt;
         run_halt_count_job(.tag($sformatf("%s_halt%0d", tag, idx)),
                            .dropped_words(16),
-                           .sqe_id(sqe_id + idx[15:0]),
+                           .rqe_id(rqe_id + idx[15:0]),
                            .sequence_no(sequence_no + idx));
         deltas[idx] = vif.cnt_halt - before_halt;
         if (deltas[idx] == 32'd0)
@@ -7567,7 +7567,7 @@ package rdma_dma_engine_pkg;
     task run_profile_latency_p99_stability_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned early_samples [512];
@@ -7598,7 +7598,7 @@ package rdma_dma_engine_pkg;
         run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
                     .opq_words(8),
                     .send_eoe(1'b1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(300000));
         stop_monitor = 1'b1;
@@ -7648,7 +7648,7 @@ package rdma_dma_engine_pkg;
     task run_profile_random_aw_burst_sweep_case(
       input string tag,
       input int unsigned iteration_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -7686,7 +7686,7 @@ package rdma_dma_engine_pkg;
         run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
                     .opq_words(words_v),
                     .send_eoe(1'b1),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(400000));
       end
@@ -7702,7 +7702,7 @@ package rdma_dma_engine_pkg;
     task run_profile_random_packer_sweep_case(
       input string tag,
       input int unsigned iteration_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit seen_slot [8];
@@ -7721,7 +7721,7 @@ package rdma_dma_engine_pkg;
                     .opq_words(words_v),
                     .send_eoe(1'b1),
                     .idle_after_each(idx % 3),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(400000));
       end
@@ -7737,7 +7737,7 @@ package rdma_dma_engine_pkg;
     task run_profile_random_fifo_sweep_case(
       input string tag,
       input int unsigned iteration_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -7781,7 +7781,7 @@ package rdma_dma_engine_pkg;
                                      .target_level(target_level_v),
                                      .hold_cycles(8),
                                      .expect_almost_full(target_level_v >= 192),
-                                     .sqe_id(sqe_id + idx[15:0]),
+                                     .rqe_id(rqe_id + idx[15:0]),
                                      .sequence_no(sequence_no + idx));
         end else begin
           run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
@@ -7789,7 +7789,7 @@ package rdma_dma_engine_pkg;
                       .send_eoe(1'b1),
                       .wready_lag((idx % 5) == 0 ? 128 : (idx % 17)),
                       .bvalid_lag(1 + ((idx * 13) % 31)),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(700000));
         end
@@ -7805,7 +7805,7 @@ package rdma_dma_engine_pkg;
 
     task run_profile_status_cross_sweep_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit saw_clean;
@@ -7820,30 +7820,30 @@ package rdma_dma_engine_pkg;
       saw_boundary = 1'b0;
       saw_halt = 1'b0;
       run_dma_job(.tag({tag, "_clean"}), .opq_words(16),
-                  .send_eoe(1'b1), .sqe_id(sqe_id),
+                  .send_eoe(1'b1), .rqe_id(rqe_id),
                   .sequence_no(sequence_no), .timeout_cycles(300000));
       saw_clean = (vif.job_status[RDMA_DMA_ST_EOE] &&
                    vif.job_status[RDMA_DMA_ST_SEG0_ONLY]);
       run_dma_job(.tag({tag, "_align"}), .seg0_addr(64'h0000_0000_0010_0001),
                   .opq_words(0), .send_eoe(1'b0),
-                  .sqe_id(sqe_id + 16'd1),
+                  .rqe_id(rqe_id + 16'd1),
                   .sequence_no(sequence_no + 32'd1),
                   .timeout_cycles(300000));
       saw_align = vif.job_status[RDMA_DMA_ST_ALIGN_ERR];
       run_dma_job(.tag({tag, "_full"}), .seg0_span(64'h1000),
                   .opq_words(1024), .send_eoe(1'b0),
-                  .sqe_id(sqe_id + 16'd2),
+                  .rqe_id(rqe_id + 16'd2),
                   .sequence_no(sequence_no + 32'd2),
                   .timeout_cycles(300000));
       saw_full = vif.job_status[RDMA_DMA_ST_FULL];
       run_dma_job(.tag({tag, "_boundary"}), .seg0_span(64'h1000),
                   .seg1_span(64'h1000), .opq_words(1032),
-                  .send_eoe(1'b1), .sqe_id(sqe_id + 16'd3),
+                  .send_eoe(1'b1), .rqe_id(rqe_id + 16'd3),
                   .sequence_no(sequence_no + 32'd3),
                   .timeout_cycles(300000));
       saw_boundary = vif.job_status[RDMA_DMA_ST_SEG_BOUNDARY_HIT];
       run_halt_count_job(.tag({tag, "_halt"}), .dropped_words(16),
-                         .sqe_id(sqe_id + 16'd4),
+                         .rqe_id(rqe_id + 16'd4),
                          .sequence_no(sequence_no + 32'd4));
       saw_halt = vif.job_status[RDMA_DMA_ST_HALT];
       if (!saw_clean || !saw_align || !saw_full ||
@@ -7855,7 +7855,7 @@ package rdma_dma_engine_pkg;
     task run_profile_dbg2_lineage_sweep_case(
       input string tag,
       input int unsigned iteration_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned idx = 0; idx < iteration_count; idx++) begin
@@ -7863,7 +7863,7 @@ package rdma_dma_engine_pkg;
                     .opq_words(1 + ((idx * 31) % 96)),
                     .send_eoe(1'b1),
                     .idle_after_each(idx % 5),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(400000));
       end
@@ -7884,7 +7884,7 @@ package rdma_dma_engine_pkg;
       input string tag,
       input int unsigned opq_words,
       input int unsigned max_cycles,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       bit stop_monitor;
@@ -7904,7 +7904,7 @@ package rdma_dma_engine_pkg;
       run_profile_single_load_case(.tag(tag), .opq_words(opq_words),
                                    .idle_after_each(0),
                                    .wready_lag(0), .bvalid_lag(1),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(sequence_no));
       stop_monitor = 1'b1;
       wait_cycles(1);
@@ -7924,7 +7924,7 @@ package rdma_dma_engine_pkg;
     task run_profile_sidecar_overhead_case(
       input string tag,
       input int unsigned opq_words,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned dbg1_before;
@@ -7936,7 +7936,7 @@ package rdma_dma_engine_pkg;
       dbg2_before = env.scb.dbg2_emit_count;
       run_profile_sidecar_wallclock_case(.tag(tag), .opq_words(opq_words),
                                          .max_cycles(200000),
-                                         .sqe_id(sqe_id),
+                                         .rqe_id(rqe_id),
                                          .sequence_no(sequence_no));
       dbg1_delta = env.scb.dbg1_sample_count - dbg1_before;
       dbg2_delta = env.scb.dbg2_emit_count - dbg2_before;
@@ -7950,7 +7950,7 @@ package rdma_dma_engine_pkg;
     task run_profile_stress_halt_rate_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned done_before;
@@ -7965,14 +7965,14 @@ package rdma_dma_engine_pkg;
           halt_jobs++;
           run_halt_count_job(.tag($sformatf("%s_halt%0d", tag, idx)),
                              .dropped_words(8),
-                             .sqe_id(sqe_id + idx[15:0]),
+                             .rqe_id(rqe_id + idx[15:0]),
                              .sequence_no(sequence_no + idx));
         end else begin
           run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
                       .opq_words(16 + ((idx * 7) % 64)),
                       .send_eoe(1'b1),
                       .idle_after_each(idx % 3),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(400000));
         end
@@ -7992,7 +7992,7 @@ package rdma_dma_engine_pkg;
       input string tag,
       input int unsigned reset_count,
       input int unsigned jobs_per_reset,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       for (int unsigned reset_idx = 0; reset_idx < reset_count; reset_idx++) begin
@@ -8002,7 +8002,7 @@ package rdma_dma_engine_pkg;
           run_dma_job(.tag($sformatf("%s_r%0d_j%0d", tag, reset_idx, job_idx)),
                       .opq_words(8 + ((idx * 5) % 32)),
                       .send_eoe(1'b1),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
         end
@@ -8019,7 +8019,7 @@ package rdma_dma_engine_pkg;
     task run_profile_random_align_stress_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned done_before;
@@ -8034,7 +8034,7 @@ package rdma_dma_engine_pkg;
                       .seg0_addr(64'h0000_0000_0010_0001),
                       .opq_words(0),
                       .send_eoe(1'b0),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
           check_status_bit(tag, "status[ALIGN_ERR]", RDMA_DMA_ST_ALIGN_ERR,
@@ -8043,7 +8043,7 @@ package rdma_dma_engine_pkg;
           run_dma_job(.tag($sformatf("%s_job%0d", tag, idx)),
                       .opq_words(8 + ((idx * 11) % 64)),
                       .send_eoe(1'b1),
-                      .sqe_id(sqe_id + idx[15:0]),
+                      .rqe_id(rqe_id + idx[15:0]),
                       .sequence_no(sequence_no + idx),
                       .timeout_cycles(300000));
         end
@@ -8059,7 +8059,7 @@ package rdma_dma_engine_pkg;
     task run_profile_random_opcode_stress_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned done_before;
@@ -8073,7 +8073,7 @@ package rdma_dma_engine_pkg;
                     .opq_words(4 + ((idx * 17) % 96)),
                     .send_eoe(1'b1),
                     .idle_after_each(idx % 4),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(400000));
       end
@@ -8087,7 +8087,7 @@ package rdma_dma_engine_pkg;
     task run_profile_basic_bucket_frame_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned done_before;
@@ -8098,7 +8098,7 @@ package rdma_dma_engine_pkg;
                     .opq_words(1 + ((idx * 13) % 128)),
                     .send_eoe(1'b1),
                     .idle_after_each(idx % 5),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(400000));
       end
@@ -8112,7 +8112,7 @@ package rdma_dma_engine_pkg;
     task run_profile_edge_bucket_frame_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned done_before;
@@ -8133,7 +8133,7 @@ package rdma_dma_engine_pkg;
             run_dma_job(.tag($sformatf("%s_clean%0d", tag, idx)),
                         .opq_words(16 + idx),
                         .send_eoe(1'b1),
-                        .sqe_id(sqe_id + idx[15:0]),
+                        .rqe_id(rqe_id + idx[15:0]),
                         .sequence_no(sequence_no + idx),
                         .timeout_cycles(300000));
           end
@@ -8143,7 +8143,7 @@ package rdma_dma_engine_pkg;
                         .seg0_addr(64'h0000_0000_0010_0001),
                         .opq_words(0),
                         .send_eoe(1'b0),
-                        .sqe_id(sqe_id + idx[15:0]),
+                        .rqe_id(rqe_id + idx[15:0]),
                         .sequence_no(sequence_no + idx),
                         .timeout_cycles(300000));
             check_status_bit(tag, "status[ALIGN_ERR]",
@@ -8156,7 +8156,7 @@ package rdma_dma_engine_pkg;
                         .seg1_span(64'h0000_0000_0000_1000),
                         .opq_words(1032),
                         .send_eoe(1'b1),
-                        .sqe_id(sqe_id + idx[15:0]),
+                        .rqe_id(rqe_id + idx[15:0]),
                         .sequence_no(sequence_no + idx),
                         .timeout_cycles(600000));
             check_status_bit(tag, "status[SEG_BOUNDARY_HIT]",
@@ -8168,7 +8168,7 @@ package rdma_dma_engine_pkg;
                         .seg0_span(64'h0000_0000_0000_1000),
                         .opq_words(1024),
                         .send_eoe(1'b0),
-                        .sqe_id(sqe_id + idx[15:0]),
+                        .rqe_id(rqe_id + idx[15:0]),
                         .sequence_no(sequence_no + idx),
                         .timeout_cycles(600000));
             check_status_bit(tag, "status[FULL]", RDMA_DMA_ST_FULL, 1'b1);
@@ -8184,7 +8184,7 @@ package rdma_dma_engine_pkg;
 
     task run_profile_all_buckets_frame_case(
       input string tag,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned done_before;
@@ -8192,11 +8192,11 @@ package rdma_dma_engine_pkg;
       done_before = env.scb.job_done_count;
       run_profile_basic_bucket_frame_case(.tag({tag, "_basic"}),
                                           .job_count(16),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(sequence_no));
       run_profile_edge_bucket_frame_case(.tag({tag, "_edge"}),
                                          .job_count(16),
-                                         .sqe_id(sqe_id + 16'd64),
+                                         .rqe_id(rqe_id + 16'd64),
                                          .sequence_no(sequence_no + 32'd64));
       for (int unsigned idx = 0; idx < 16; idx++) begin
         run_dma_job(.tag($sformatf("%s_prof%0d", tag, idx)),
@@ -8204,7 +8204,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .wready_lag(idx % 7),
                     .bvalid_lag(1 + (idx % 5)),
-                    .sqe_id(sqe_id + 16'd128 + idx[15:0]),
+                    .rqe_id(rqe_id + 16'd128 + idx[15:0]),
                     .sequence_no(sequence_no + 32'd128 + idx),
                     .timeout_cycles(500000));
       end
@@ -8214,7 +8214,7 @@ package rdma_dma_engine_pkg;
                     .send_eoe(1'b1),
                     .bresp((idx % 2) == 0 ? axi4_write_pkg::AXI_RESP_OKAY :
                                              axi4_write_pkg::AXI_RESP_SLVERR),
-                    .sqe_id(sqe_id + 16'd192 + idx[15:0]),
+                    .rqe_id(rqe_id + 16'd192 + idx[15:0]),
                     .sequence_no(sequence_no + 32'd192 + idx),
                     .timeout_cycles(400000));
       end
@@ -8230,7 +8230,7 @@ package rdma_dma_engine_pkg;
       input string tag,
       input int unsigned soak_cycles,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned done_before;
@@ -8251,7 +8251,7 @@ package rdma_dma_engine_pkg;
                     .idle_after_each(idx % 7),
                     .wready_lag(idx % 11),
                     .bvalid_lag(1 + (idx % 13)),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(500000));
         if ((idx == 0) || (idx == 9) || (idx == 49) ||
@@ -8273,7 +8273,7 @@ package rdma_dma_engine_pkg;
     task run_profile_final_throughput_report_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_profile_throughput_consistency_case(.tag({tag, "_throughput"}),
@@ -8291,12 +8291,12 @@ package rdma_dma_engine_pkg;
     task run_profile_final_latency_report_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_profile_latency_p99_stability_case(.tag({tag, "_p99"}),
                                              .job_count(job_count),
-                                             .sqe_id(sqe_id),
+                                             .rqe_id(rqe_id),
                                              .sequence_no(sequence_no));
       if (env.scb.job_done_count != job_count[31:0])
         `uvm_error(tag, $sformatf("final latency jobs got=%0d expected=%0d",
@@ -8306,12 +8306,12 @@ package rdma_dma_engine_pkg;
     task run_profile_final_halt_rate_report_case(
       input string tag,
       input int unsigned sample_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_profile_halt_rate_convergence_case(.tag({tag, "_halt_rate"}),
                                              .sample_count(sample_count),
-                                             .sqe_id(sqe_id),
+                                             .rqe_id(rqe_id),
                                              .sequence_no(sequence_no));
       if (vif.cnt_halt == 32'd0)
         `uvm_error(tag, "final halt-rate report saw no halted words")
@@ -8321,12 +8321,12 @@ package rdma_dma_engine_pkg;
     task run_profile_final_lineage_residual_report_case(
       input string tag,
       input int unsigned iteration_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       run_profile_dbg2_lineage_sweep_case(.tag({tag, "_lineage"}),
                                           .iteration_count(iteration_count),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(sequence_no));
       if (env.debug_level >= 2) begin
         if (env.scb.dbg2_emit_count != env.scb.opq_count)
@@ -8338,7 +8338,7 @@ package rdma_dma_engine_pkg;
     task run_profile_dual_build_comparison_case(
       input string tag,
       input int unsigned job_count,
-      input bit [15:0] sqe_id,
+      input bit [15:0] rqe_id,
       input bit [31:0] sequence_no
     );
       int unsigned done_before;
@@ -8356,7 +8356,7 @@ package rdma_dma_engine_pkg;
                     .opq_words(words_v),
                     .send_eoe(1'b1),
                     .idle_after_each(idx % 3),
-                    .sqe_id(sqe_id + idx[15:0]),
+                    .rqe_id(rqe_id + idx[15:0]),
                     .sequence_no(sequence_no + idx),
                     .timeout_cycles(400000));
       end
@@ -8377,7 +8377,7 @@ package rdma_dma_engine_pkg;
     task run_halt_count_job(
       input string tag,
       input int unsigned dropped_words = 10,
-      input bit [15:0] sqe_id = 16'h0100,
+      input bit [15:0] rqe_id = 16'h0100,
       input bit [31:0] sequence_no = 32'd1,
       input bit clear_after_first_halt = 1'b0,
       input bit [1:0] bresp = axi4_write_pkg::AXI_RESP_OKAY
@@ -8409,7 +8409,7 @@ package rdma_dma_engine_pkg;
       job_seq.seg0_span = 64'h0000_0000_0001_0000;
       job_seq.seg1_addr = 64'h0000_0000_0000_0000;
       job_seq.seg1_span = 64'h0000_0000_0000_0000;
-      job_seq.sqe_id = sqe_id;
+      job_seq.rqe_id = rqe_id;
       job_seq.opcode = 16'h0001;
       job_seq.start(env.job_agent_h.sequencer);
       wait_cycles(2);
@@ -8495,7 +8495,7 @@ package rdma_dma_engine_pkg;
         expected_status[6] = 1'b1;
       end
       env.scb.expect_job(expected_total, expected_total[31:0], 32'h0000_0000,
-                         expected_status, status_mask, sqe_id);
+                         expected_status, status_mask, rqe_id);
       drive_direct_opq_word({8'h00, sequence_no[15:0], accepted_words[7:0]},
                             1'b1, sequence_no, lineage_id);
 
@@ -8553,7 +8553,7 @@ package rdma_dma_engine_pkg;
       int unsigned b_lag;
       int unsigned idle_after_each;
       bit [1:0] bresp;
-      bit [15:0] sqe_id;
+      bit [15:0] rqe_id;
 
       num = phase_b_case_num(id);
       prefix = phase_b_case_prefix(id);
@@ -8570,7 +8570,7 @@ package rdma_dma_engine_pkg;
       b_lag = 1;
       idle_after_each = 0;
       bresp = axi4_write_pkg::AXI_RESP_OKAY;
-      sqe_id = {8'h00, prefix, num[7:0]};
+      rqe_id = {8'h00, prefix, num[7:0]};
 
       if ((prefix == "B") && (num <= 12)) begin
         if (num == 10)
@@ -8603,15 +8603,15 @@ package rdma_dma_engine_pkg;
             23: words = 32;
             24: begin
               words = 8;
-              sqe_id = 16'hbeef;
+              rqe_id = 16'hbeef;
             end
             25: begin
               words = 8;
-              sqe_id = 16'h0000;
+              rqe_id = 16'h0000;
             end
             26: begin
               words = 8;
-              sqe_id = 16'hffff;
+              rqe_id = 16'hffff;
             end
             27: begin
               words = 8;
@@ -8667,7 +8667,7 @@ package rdma_dma_engine_pkg;
             37: begin
               words = 2048;
               send_eoe = 1'b0;
-              sqe_id = 16'hcafe;
+              rqe_id = 16'hcafe;
             end
             38: begin
               words = 2048;
@@ -8713,7 +8713,7 @@ package rdma_dma_engine_pkg;
           case (num)
             65: begin
               run_dma_job(.tag(id), .opq_words(5), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num),
+                          .rqe_id(rqe_id), .sequence_no(num),
                           .timeout_cycles(300000));
               check_u32_equal(id, "cnt_bytes_written", vif.cnt_bytes_written,
                               32'd20);
@@ -8721,54 +8721,54 @@ package rdma_dma_engine_pkg;
             66: begin
               run_dma_multi_event_job(.tag(id), .event_count(5),
                                       .words_per_event(8), .gap_cycles(0),
-                                      .sqe_id(sqe_id), .sequence_no(num),
+                                      .rqe_id(rqe_id), .sequence_no(num),
                                       .bvalid_lag(120));
             end
             67: begin
               run_halt_count_job(.tag(id), .dropped_words(10),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             68: begin
               run_halt_count_job(.tag(id), .dropped_words(7),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             69: begin
               run_dma_job(.tag({id, "_job0"}), .opq_words(128),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num));
               run_dma_job(.tag({id, "_job1"}), .opq_words(256),
-                          .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                          .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                           .sequence_no(num + 32'd100));
               check_conservation(id);
             end
             70: begin
               run_dma_job(.tag({id, "_job0"}), .seg0_span(64'h1000),
                           .opq_words(128), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
               run_dma_job(.tag({id, "_job1"}), .seg0_span(64'h2000),
                           .opq_words(256), .send_eoe(1'b1),
-                          .sqe_id(sqe_id + 16'd1),
+                          .rqe_id(rqe_id + 16'd1),
                           .sequence_no(num + 32'd100));
               run_dma_job(.tag({id, "_job2"}), .seg0_span(64'h4000),
                           .opq_words(512), .send_eoe(1'b1),
-                          .sqe_id(sqe_id + 16'd2),
+                          .rqe_id(rqe_id + 16'd2),
                           .sequence_no(num + 32'd200));
               check_conservation(id);
             end
             71: begin
               run_dma_job(.tag({id, "_job0"}), .opq_words(64),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num));
               if (vif.cnt_input_w < 32'd64)
                 `uvm_error(id, "cnt_input_w did not increment after job0")
               run_dma_job(.tag({id, "_job1"}), .opq_words(64),
-                          .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                          .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                           .sequence_no(num + 32'd100));
               check_u32_equal(id, "cnt_input_w", vif.cnt_input_w, 32'd128);
             end
             72: begin
               run_dma_job(.tag(id), .opq_words(100), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
               pulse_clear_counters();
               check_u32_equal(id, "cnt_input_w", vif.cnt_input_w, 32'd0);
               check_u32_equal(id, "cnt_bytes_written", vif.cnt_bytes_written,
@@ -8779,7 +8779,7 @@ package rdma_dma_engine_pkg;
             end
             73: begin
               run_dma_job(.tag(id), .opq_words(8), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
               check_u32_equal(id, "job_event_count", vif.job_event_count,
                               32'd1);
               check_u64_equal(id, "job_first_event_ts", vif.job_first_event_ts,
@@ -8788,28 +8788,28 @@ package rdma_dma_engine_pkg;
             74: begin
               run_dma_multi_event_job(.tag(id), .event_count(3),
                                       .words_per_event(8), .gap_cycles(100),
-                                      .sqe_id(sqe_id), .sequence_no(num),
+                                      .rqe_id(rqe_id), .sequence_no(num),
                                       .bvalid_lag(300));
               if (vif.job_first_event_ts >= vif.job_last_event_ts)
                 `uvm_error(id, "first_event_ts did not precede last_event_ts")
             end
             75: begin
               run_dma_job(.tag(id), .opq_words(8), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
               if (vif.job_first_event_ts == 64'h0)
                 `uvm_error(id, "first_event_ts did not capture a nonzero EOE cycle")
             end
             76: begin
               run_dma_multi_event_job(.tag(id), .event_count(5),
                                       .words_per_event(8), .gap_cycles(20),
-                                      .sqe_id(sqe_id), .sequence_no(num),
+                                      .rqe_id(rqe_id), .sequence_no(num),
                                       .bvalid_lag(120));
               if (vif.job_last_event_ts <= vif.job_first_event_ts)
                 `uvm_error(id, "last_event_ts did not advance on later EOE")
             end
             77: begin
               run_dma_job(.tag(id), .seg0_span(64'h1000), .opq_words(1024),
-                          .send_eoe(1'b0), .sqe_id(sqe_id),
+                          .send_eoe(1'b0), .rqe_id(rqe_id),
                           .sequence_no(num), .timeout_cycles(300000));
               check_u32_equal(id, "job_event_count", vif.job_event_count,
                               32'd0);
@@ -8819,24 +8819,24 @@ package rdma_dma_engine_pkg;
             78: begin
               run_dma_multi_event_job(.tag(id), .event_count(100),
                                       .words_per_event(1), .gap_cycles(0),
-                                      .sqe_id(sqe_id), .sequence_no(num),
+                                      .rqe_id(rqe_id), .sequence_no(num),
                                       .bvalid_lag(800), .timeout_cycles(600000));
             end
             79: begin
               run_dma_job(.tag(id), .opq_words(8), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
               check_status_bit(id, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
               check_status_bit(id, "status[FULL]", RDMA_DMA_ST_FULL, 1'b0);
             end
             80: begin
               run_dma_job(.tag(id), .seg0_span(64'h1000), .opq_words(1024),
-                          .send_eoe(1'b0), .sqe_id(sqe_id),
+                          .send_eoe(1'b0), .rqe_id(rqe_id),
                           .sequence_no(num), .timeout_cycles(300000));
               check_status_bit(id, "status[EOE]", RDMA_DMA_ST_EOE, 1'b0);
               check_status_bit(id, "status[FULL]", RDMA_DMA_ST_FULL, 1'b1);
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -8844,159 +8844,159 @@ package rdma_dma_engine_pkg;
           case (num)
             81: begin
               run_dma_job(.tag(id), .seg0_span(64'h1000), .opq_words(1024),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num), .timeout_cycles(300000));
               check_status_bit(id, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
               check_status_bit(id, "status[FULL]", RDMA_DMA_ST_FULL, 1'b1);
             end
             82: begin
               run_dma_job(.tag(id), .opq_words(8), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
               check_status_bit(id, "status[SEG0_ONLY]",
                                RDMA_DMA_ST_SEG0_ONLY, 1'b1);
             end
             83: begin
               run_dma_job(.tag(id), .seg0_span(64'h1000),
                           .seg1_span(64'h1000), .opq_words(1025),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num), .timeout_cycles(300000));
               check_status_bit(id, "status[SEG_BOUNDARY_HIT]",
                                RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
             end
             84: begin
               run_halt_count_job(.tag(id), .dropped_words(3),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
               check_status_bit(id, "status[HALT]", RDMA_DMA_ST_HALT, 1'b1);
             end
             85: begin
               run_dma_job(.tag(id), .opq_words(16), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
               check_status_bit(id, "status[HALT]", RDMA_DMA_ST_HALT, 1'b0);
               check_u32_equal(id, "cnt_halt", vif.cnt_halt, 32'd0);
             end
             86: begin
               run_dma_job(.tag(id), .opq_words(16), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
               if (vif.job_status[15:6] !== 10'h000)
                 `uvm_error(id, $sformatf(
                   "reserved status bits [15:6] got=0x%03h expected=0",
                   vif.job_status[15:6]))
             end
             87: begin
-              run_direct_req_job(.tag(id), .hold_cycles(1), .sqe_id(sqe_id),
+              run_direct_req_job(.tag(id), .hold_cycles(1), .rqe_id(rqe_id),
                                  .check_state_after_capture(1'b1));
             end
             88: begin
-              run_direct_req_job(.tag(id), .hold_cycles(3), .sqe_id(sqe_id),
+              run_direct_req_job(.tag(id), .hold_cycles(3), .rqe_id(rqe_id),
                                  .check_state_after_capture(1'b1));
             end
             89: begin
-              run_done_pulse_report_case(.tag(id), .sqe_id(sqe_id),
+              run_done_pulse_report_case(.tag(id), .rqe_id(rqe_id),
                                          .check_report_hold(1'b0),
                                          .check_req_overlap(1'b0));
             end
             90: begin
-              run_done_pulse_report_case(.tag(id), .sqe_id(sqe_id),
+              run_done_pulse_report_case(.tag(id), .rqe_id(rqe_id),
                                          .check_report_hold(1'b0),
                                          .check_req_overlap(1'b1));
             end
             91: begin
-              run_done_pulse_report_case(.tag(id), .sqe_id(sqe_id),
+              run_done_pulse_report_case(.tag(id), .rqe_id(rqe_id),
                                          .check_report_hold(1'b1),
                                          .check_req_overlap(1'b0));
             end
             92: begin
               run_dma_job(.tag(id), .opq_words(8), .send_eoe(1'b1),
-                          .sqe_id(16'habcd), .sequence_no(num));
-              if (vif.job_sqe_id_echo !== 16'habcd)
+                          .rqe_id(16'habcd), .sequence_no(num));
+              if (vif.job_rqe_id_echo !== 16'habcd)
                 `uvm_error(id, $sformatf(
-                  "sqe_id_echo got=0x%04h expected=0xabcd",
-                  vif.job_sqe_id_echo))
+                  "rqe_id_echo got=0x%04h expected=0xabcd",
+                  vif.job_rqe_id_echo))
             end
             93: begin
-              run_fifo_level_probe_case(.tag(id), .sqe_id(sqe_id));
+              run_fifo_level_probe_case(.tag(id), .rqe_id(rqe_id));
             end
             94: begin
               run_halt_count_job(.tag(id), .dropped_words(1),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
               if (!vif.job_status[RDMA_DMA_ST_HALT])
                 `uvm_error(id, "HALT status was not set after almost-full")
             end
             95: begin
-              run_packer_slot_probe_case(.tag(id), .sqe_id(sqe_id));
+              run_packer_slot_probe_case(.tag(id), .rqe_id(rqe_id));
             end
             96: begin
-              run_writer_state_probe_case(.tag(id), .sqe_id(sqe_id));
+              run_writer_state_probe_case(.tag(id), .rqe_id(rqe_id));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
         end else if ((num >= 97) && (num <= 112)) begin
           case (num)
             97: begin
-              run_dbg1_aw_inflight_case(.tag(id), .sqe_id(sqe_id));
+              run_dbg1_aw_inflight_case(.tag(id), .rqe_id(rqe_id));
             end
             98: begin
-              run_dbg1_w_remaining_case(.tag(id), .sqe_id(sqe_id));
+              run_dbg1_w_remaining_case(.tag(id), .rqe_id(rqe_id));
             end
             99: begin
               run_halt_count_job(.tag(id), .dropped_words(5),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             100: begin
-              run_dbg1_b_outstanding_case(.tag(id), .sqe_id(sqe_id));
+              run_dbg1_b_outstanding_case(.tag(id), .rqe_id(rqe_id));
             end
             101: begin
               run_dma_job(.tag(id), .opq_words(8), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
             end
             102: begin
               run_dma_job(.tag(id), .opq_words(32), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
             end
             103: begin
-              run_random_idle_job(.tag(id), .sqe_id(sqe_id));
+              run_random_idle_job(.tag(id), .rqe_id(rqe_id));
             end
             104: begin
               run_dma_job(.tag(id), .opq_words(4), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
             end
             105: begin
               run_dma_job(.tag(id), .seg0_span(64'h1000),
                           .seg1_span(64'h1000), .opq_words(2048),
-                          .send_eoe(1'b0), .sqe_id(sqe_id),
+                          .send_eoe(1'b0), .rqe_id(rqe_id),
                           .sequence_no(num), .timeout_cycles(500000));
             end
             106: begin
               run_dma_multi_event_job(.tag(id), .event_count(4),
                                       .words_per_event(8), .gap_cycles(8),
-                                      .sqe_id(sqe_id), .sequence_no(num),
+                                      .rqe_id(rqe_id), .sequence_no(num),
                                       .bvalid_lag(80));
             end
             107: begin
               run_dma_job(.tag(id), .opq_words(8), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
               if ((env.debug_level == 1) &&
                   ((vif.dbg2_writer_meta_valid !== 1'b0) ||
                    (vif.dbg2_writer_meta_valid_mask !== '0)))
                 `uvm_error(id, "DEBUG2 writer metadata was not inert in DEBUG1")
             end
             108: begin
-              run_random_mixed_jobs(.tag(id), .sqe_id(sqe_id));
+              run_random_mixed_jobs(.tag(id), .rqe_id(rqe_id));
             end
             109: begin
               run_multi_event_var_job(.tag(id), .event_count(16),
-                                      .sqe_id(sqe_id), .sequence_no(num),
+                                      .rqe_id(rqe_id), .sequence_no(num),
                                       .timeout_cycles(700000));
             end
             110: begin
-              run_random_idle_job(.tag(id), .sqe_id(sqe_id));
+              run_random_idle_job(.tag(id), .rqe_id(rqe_id));
             end
             111: begin
               run_dma_job(.tag(id), .seg0_span(64'h2000), .opq_words(1024),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num), .timeout_cycles(300000));
               check_u32_equal(id, "job_seg0_bytes_written",
                               vif.job_seg0_bytes_written, 32'd4096);
@@ -9008,7 +9008,7 @@ package rdma_dma_engine_pkg;
             112: begin
               run_dma_job(.tag(id), .seg0_span(64'h1000),
                           .seg1_span(64'h1000), .opq_words(2048),
-                          .send_eoe(1'b0), .sqe_id(sqe_id),
+                          .send_eoe(1'b0), .rqe_id(rqe_id),
                           .sequence_no(num), .timeout_cycles(500000));
               check_u32_equal(id, "job_seg0_bytes_written",
                               vif.job_seg0_bytes_written, 32'd4096);
@@ -9018,7 +9018,7 @@ package rdma_dma_engine_pkg;
                               vif.job_bytes_written_total[31:0], 32'd8192);
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -9027,7 +9027,7 @@ package rdma_dma_engine_pkg;
             113: begin
               run_dma_job(.tag(id), .seg0_span(64'h1000),
                           .seg1_span(64'h1000), .opq_words(1056),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num), .timeout_cycles(300000));
               check_u32_equal(id, "job_seg0_bytes_written",
                               vif.job_seg0_bytes_written, 32'd4096);
@@ -9039,7 +9039,7 @@ package rdma_dma_engine_pkg;
             114: begin
               run_dma_job(.tag(id), .seg0_span(64'h1000),
                           .seg1_span(64'h1000), .opq_words(512),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num), .timeout_cycles(300000));
               check_u32_equal(id, "job_seg0_bytes_written",
                               vif.job_seg0_bytes_written, 32'd2048);
@@ -9049,7 +9049,7 @@ package rdma_dma_engine_pkg;
             115: begin
               run_dma_job(.tag(id), .seg0_span(64'h1000),
                           .seg1_span(64'h1000), .opq_words(1536),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num), .timeout_cycles(300000));
               if ({32'h0000_0000, vif.job_seg0_bytes_written} +
                   {32'h0000_0000, vif.job_seg1_bytes_written} !==
@@ -9059,7 +9059,7 @@ package rdma_dma_engine_pkg;
             116: begin
               run_dma_job(.tag(id), .seg0_addr(64'h0000_0000_0010_0001),
                           .seg0_span(64'h1000), .opq_words(0),
-                          .send_eoe(1'b0), .sqe_id(sqe_id),
+                          .send_eoe(1'b0), .rqe_id(rqe_id),
                           .sequence_no(num), .timeout_cycles(300000));
               check_u32_equal(id, "job_seg0_bytes_written",
                               vif.job_seg0_bytes_written, 32'd0);
@@ -9071,47 +9071,47 @@ package rdma_dma_engine_pkg;
                                RDMA_DMA_ST_ALIGN_ERR, 1'b1);
             end
             117: begin
-              run_queue_single_burst_case(.tag(id), .sqe_id(sqe_id));
+              run_queue_single_burst_case(.tag(id), .rqe_id(rqe_id));
             end
             118: begin
-              run_queue_burst_model_case(.tag(id), .sqe_id(sqe_id));
+              run_queue_burst_model_case(.tag(id), .rqe_id(rqe_id));
             end
             119: begin
-              run_fifo_residency_case(.tag(id), .sqe_id(sqe_id));
+              run_fifo_residency_case(.tag(id), .rqe_id(rqe_id));
             end
             120: begin
               run_halt_count_job(.tag(id), .dropped_words(12),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
               if (vif.cnt_halt == 32'd0)
                 `uvm_error(id, "cnt_halt did not record halt onset")
             end
             121: begin
-              run_segment_latency_case(.tag(id), .sqe_id(sqe_id));
+              run_segment_latency_case(.tag(id), .rqe_id(rqe_id));
             end
             122: begin
-              run_fifo_residency_case(.tag(id), .sqe_id(sqe_id));
+              run_fifo_residency_case(.tag(id), .rqe_id(rqe_id));
               check_conservation(id);
             end
             123: begin
               run_dma_job(.tag({id, "_job0"}), .opq_words(8),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num));
               check_u32_equal(id, "cnt_input_w after job0",
                               vif.cnt_input_w, 32'd8);
               run_dma_job(.tag({id, "_job1"}), .opq_words(8),
-                          .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                          .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                           .sequence_no(num + 32'd100));
               check_u32_equal(id, "cnt_input_w after job1",
                               vif.cnt_input_w, 32'd16);
             end
             124: begin
               run_dma_job(.tag({id, "_job0"}), .opq_words(8),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num));
               check_u32_equal(id, "cnt_bytes_written after job0",
                               vif.cnt_bytes_written, 32'd32);
               run_dma_job(.tag({id, "_job1"}), .opq_words(16),
-                          .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                          .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                           .sequence_no(num + 32'd100));
               check_u32_equal(id, "cnt_bytes_written after job1",
                               vif.cnt_bytes_written, 32'd96);
@@ -9120,15 +9120,15 @@ package rdma_dma_engine_pkg;
               bit [31:0] halt_after_clean;
               bit [31:0] halt_after_inject;
               run_dma_job(.tag({id, "_job0"}), .opq_words(8),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num));
               halt_after_clean = vif.cnt_halt;
               run_halt_count_job(.tag({id, "_halt"}), .dropped_words(4),
-                                 .sqe_id(sqe_id + 16'd1),
+                                 .rqe_id(rqe_id + 16'd1),
                                  .sequence_no(num + 32'd100));
               halt_after_inject = vif.cnt_halt;
               run_dma_job(.tag({id, "_job2"}), .opq_words(8),
-                          .send_eoe(1'b1), .sqe_id(sqe_id + 16'd2),
+                          .send_eoe(1'b1), .rqe_id(rqe_id + 16'd2),
                           .sequence_no(num + 32'd200));
               if (halt_after_clean != 32'd0)
                 `uvm_error(id, "cnt_halt incremented during clean job")
@@ -9141,7 +9141,7 @@ package rdma_dma_engine_pkg;
               for (int unsigned idx = 0; idx < 5; idx++) begin
                 run_dma_job(.tag($sformatf("%s_job%0d", id, idx)),
                             .opq_words(8), .send_eoe(1'b1),
-                            .sqe_id(sqe_id + idx[15:0]),
+                            .rqe_id(rqe_id + idx[15:0]),
                             .sequence_no(num + idx));
               end
               check_u32_equal(id, "cnt_eoe_observed",
@@ -9149,13 +9149,13 @@ package rdma_dma_engine_pkg;
             end
             127: begin
               run_dma_job(.tag({id, "_job0"}), .opq_words(8),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num));
               if ((vif.cnt_input_w == 32'd0) ||
                   (vif.cnt_bytes_written == 32'd0))
                 `uvm_error(id, "counters did not update before job boundary")
               run_dma_job(.tag({id, "_job1"}), .opq_words(8),
-                          .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                          .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                           .sequence_no(num + 32'd100));
               check_u32_equal(id, "cnt_input_w", vif.cnt_input_w, 32'd16);
               check_u32_equal(id, "cnt_bytes_written",
@@ -9163,11 +9163,11 @@ package rdma_dma_engine_pkg;
             end
             128: begin
               run_phase_b_coverage_closure_case(.tag({id, "_coverage"}),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
               apply_midrun_reset();
               run_dma_job(.tag(id), .opq_words(8), .send_eoe(1'b1),
-                          .sqe_id(sqe_id), .sequence_no(num));
+                          .rqe_id(rqe_id), .sequence_no(num));
               if (env.scb.dbg1_sample_count == 0)
                 `uvm_error(id, "dbg1 monitor did not sample counter window")
               check_u32_equal(id, "cnt_input_w", vif.cnt_input_w, 32'd8);
@@ -9177,7 +9177,7 @@ package rdma_dma_engine_pkg;
                               vif.cnt_eoe_observed, 32'd1);
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -9211,7 +9211,7 @@ package rdma_dma_engine_pkg;
                                   .expected_last_aw(seg0_addr + 64'h0e00),
                                   .check_first_awlen(1'b1),
                                   .expected_first_awlen(15),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
               check_status_bit(id, "status[FULL]", RDMA_DMA_ST_FULL, 1'b1);
             end
             2: begin
@@ -9224,7 +9224,7 @@ package rdma_dma_engine_pkg;
                                   .expected_last_aw(seg0_addr + 64'h0600),
                                   .check_first_awlen(1'b1),
                                   .expected_first_awlen(15),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             3: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
@@ -9232,7 +9232,7 @@ package rdma_dma_engine_pkg;
                                   .obs_words(1024), .obs_send_eoe(1'b1),
                                   .expected_aw_count(8),
                                   .expected_first_aw(seg0_addr),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             4: begin
               run_aw_observed_job(.tag(id),
@@ -9241,7 +9241,7 @@ package rdma_dma_engine_pkg;
                                   .obs_words(256), .obs_send_eoe(1'b1),
                                   .expected_aw_count(2),
                                   .expected_first_aw(seg0_addr),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             5: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
@@ -9253,7 +9253,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_aw(seg0_addr),
                                   .check_seg1_aw(1'b1),
                                   .expected_seg1_aw(seg1_addr),
-                                  .sqe_id(sqe_id), .sequence_no(num),
+                                  .rqe_id(rqe_id), .sequence_no(num),
                                   .timeout_cycles(500000));
               check_status_bit(id, "status[SEG_BOUNDARY_HIT]",
                                RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
@@ -9266,7 +9266,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_aw(seg0_addr),
                                   .check_first_awlen(1'b1),
                                   .expected_first_awlen(15),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             7: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
@@ -9276,7 +9276,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_aw(seg0_addr),
                                   .check_first_awlen(1'b1),
                                   .expected_first_awlen(15),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             8: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
@@ -9286,7 +9286,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_aw(seg0_addr),
                                   .check_first_awlen(1'b1),
                                   .expected_first_awlen(15),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             9: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
@@ -9295,7 +9295,7 @@ package rdma_dma_engine_pkg;
                                   .obs_words(128), .obs_send_eoe(1'b1),
                                   .expected_aw_count(1),
                                   .expected_first_aw(seg0_addr),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
               check_status_bit(id, "status[SEG0_ONLY]",
                                RDMA_DMA_ST_SEG0_ONLY, 1'b1);
               check_u32_equal(id, "job_seg1_bytes_written",
@@ -9312,35 +9312,35 @@ package rdma_dma_engine_pkg;
                                   .expected_last_aw(64'h0000_0000_ffff_fe00),
                                   .check_first_awlen(1'b1),
                                   .expected_first_awlen(15),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             11: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(64'h0),
                                   .obs_words(8), .obs_send_eoe(1'b1),
                                   .expected_aw_count(1),
                                   .expected_first_aw(64'h0),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             12: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(64'h1000),
                                   .obs_words(8), .obs_send_eoe(1'b1),
                                   .expected_aw_count(1),
                                   .expected_first_aw(64'h1000),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             13: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(64'h0001_0000),
                                   .obs_words(8), .obs_send_eoe(1'b1),
                                   .expected_aw_count(1),
                                   .expected_first_aw(64'h0001_0000),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             14: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(64'h0040_0000),
                                   .obs_words(8), .obs_send_eoe(1'b1),
                                   .expected_aw_count(1),
                                   .expected_first_aw(64'h0040_0000),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             15: begin
               run_aw_observed_job(.tag(id),
@@ -9348,7 +9348,7 @@ package rdma_dma_engine_pkg;
                                   .obs_words(8), .obs_send_eoe(1'b1),
                                   .expected_aw_count(1),
                                   .expected_first_aw(64'h0000_0001_0000_0000),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             16: begin
               run_aw_observed_job(.tag(id),
@@ -9356,10 +9356,10 @@ package rdma_dma_engine_pkg;
                                   .obs_words(8), .obs_send_eoe(1'b1),
                                   .expected_aw_count(1),
                                   .expected_first_aw(64'h0000_0010_0000_0000),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -9372,7 +9372,7 @@ package rdma_dma_engine_pkg;
                                   .obs_words(8), .obs_send_eoe(1'b1),
                                   .expected_aw_count(1),
                                   .expected_first_aw(64'hffff_ffff_ffff_f000),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             18: begin
               run_aw_observed_job(.tag(id),
@@ -9387,7 +9387,7 @@ package rdma_dma_engine_pkg;
                                   .expected_last_aw(64'h0000_0000_0008_0e00),
                                   .check_seg1_aw(1'b1),
                                   .expected_seg1_aw(64'h0000_0000_0008_0000),
-                                  .sqe_id(sqe_id), .sequence_no(num),
+                                  .rqe_id(rqe_id), .sequence_no(num),
                                   .timeout_cycles(500000));
               check_status_bit(id, "status[SEG_BOUNDARY_HIT]",
                                RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
@@ -9405,7 +9405,7 @@ package rdma_dma_engine_pkg;
                                   .expected_last_aw(64'h0000_0000_0010_1e00),
                                   .check_seg1_aw(1'b1),
                                   .expected_seg1_aw(64'h0000_0000_0010_1000),
-                                  .sqe_id(sqe_id), .sequence_no(num),
+                                  .rqe_id(rqe_id), .sequence_no(num),
                                   .timeout_cycles(500000));
               check_status_bit(id, "status[SEG_BOUNDARY_HIT]",
                                RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
@@ -9423,7 +9423,7 @@ package rdma_dma_engine_pkg;
                                   .expected_last_aw(64'h0000_0000_1000_0e00),
                                   .check_seg1_aw(1'b1),
                                   .expected_seg1_aw(64'h0000_0000_1000_0000),
-                                  .sqe_id(sqe_id), .sequence_no(num),
+                                  .rqe_id(rqe_id), .sequence_no(num),
                                   .timeout_cycles(500000));
               check_status_bit(id, "status[SEG_BOUNDARY_HIT]",
                                RDMA_DMA_ST_SEG_BOUNDARY_HIT, 1'b1);
@@ -9436,7 +9436,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_aw(seg0_addr),
                                   .check_first_awlen(1'b1),
                                   .expected_first_awlen(0),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             22: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
@@ -9448,7 +9448,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_awlen(15),
                                   .check_last_awlen(1'b1),
                                   .expected_last_awlen(0),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             23: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
@@ -9458,7 +9458,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_aw(seg0_addr),
                                   .check_first_awlen(1'b1),
                                   .expected_first_awlen(15),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             24: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
@@ -9468,7 +9468,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_aw(seg0_addr),
                                   .check_first_awlen(1'b1),
                                   .expected_first_awlen(4),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             25: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
@@ -9478,7 +9478,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_aw(seg0_addr),
                                   .check_first_awlen(1'b1),
                                   .expected_first_awlen(3),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             26: begin
               run_aw_observed_job(.tag(id),
@@ -9488,7 +9488,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_aw(64'h0000_0000_0000_1000),
                                   .check_first_awlen(1'b1),
                                   .expected_first_awlen(15),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             27: begin
               run_aw_observed_job(.tag(id),
@@ -9501,7 +9501,7 @@ package rdma_dma_engine_pkg;
                                   .expected_last_aw(64'h0000_0000_0000_1e00),
                                   .check_last_awlen(1'b1),
                                   .expected_last_awlen(15),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             28: begin
               run_aw_observed_job(.tag(id),
@@ -9516,7 +9516,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_awlen(15),
                                   .check_last_awlen(1'b1),
                                   .expected_last_awlen(15),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             29: begin
               run_aw_observed_job(.tag(id),
@@ -9530,7 +9530,7 @@ package rdma_dma_engine_pkg;
                                   .expected_first_awlen(15),
                                   .check_last_awlen(1'b1),
                                   .expected_last_awlen(15),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             30: begin
               run_aw_observed_job(.tag(id), .obs_seg0_addr(seg0_addr),
@@ -9543,22 +9543,22 @@ package rdma_dma_engine_pkg;
                                   .check_last_awlen(1'b1),
                                   .expected_last_awlen(3),
                                   .obs_idle_after_each(1),
-                                  .sqe_id(sqe_id), .sequence_no(num));
+                                  .rqe_id(rqe_id), .sequence_no(num));
             end
             31: begin
-              run_fifo_threshold_edge_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_threshold_edge_case(.tag(id), .rqe_id(rqe_id),
                                            .check_crossing(1'b1),
                                            .check_drain(1'b0),
                                            .sequence_no(num));
             end
             32: begin
-              run_fifo_threshold_edge_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_threshold_edge_case(.tag(id), .rqe_id(rqe_id),
                                            .check_crossing(1'b0),
                                            .check_drain(1'b1),
                                            .sequence_no(num));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -9567,42 +9567,42 @@ package rdma_dma_engine_pkg;
           case (num)
             33: begin
               run_halt_count_job(.tag(id), .dropped_words(16),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             34: begin
               run_halt_count_job(.tag(id), .dropped_words(1),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             35: begin
-              run_fifo_partial_fill_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_partial_fill_case(.tag(id), .rqe_id(rqe_id),
                                          .sequence_no(num));
             end
             36: begin
-              run_fifo_single_beat_dwell_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_single_beat_dwell_case(.tag(id), .rqe_id(rqe_id),
                                               .sequence_no(num));
             end
             37: begin
-              run_fifo_fill_drain_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_fill_drain_case(.tag(id), .rqe_id(rqe_id),
                                        .check_fill(1'b1),
                                        .check_empty_after_done(1'b0),
                                        .sequence_no(num));
             end
             38: begin
-              run_fifo_fill_drain_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_fill_drain_case(.tag(id), .rqe_id(rqe_id),
                                        .check_fill(1'b0),
                                        .check_empty_after_done(1'b1),
                                        .sequence_no(num));
             end
             39: begin
               run_halt_count_job(.tag(id), .dropped_words(1),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             40: begin
               check_reset_defaults(id);
             end
             default: begin
               run_packer_flush_slot_case(.tag(id), .slot_words(num - 40),
-                                         .sqe_id(sqe_id),
+                                         .rqe_id(rqe_id),
                                          .sequence_no(num));
             end
           endcase
@@ -9611,23 +9611,23 @@ package rdma_dma_engine_pkg;
         if (num <= 64) begin
           case (num)
             49: begin
-              run_packer_full_then_slot1_case(.tag(id), .sqe_id(sqe_id),
+              run_packer_full_then_slot1_case(.tag(id), .rqe_id(rqe_id),
                                               .sequence_no(num));
             end
             50: begin
-              run_double_eoe_case(.tag(id), .sqe_id(sqe_id),
+              run_double_eoe_case(.tag(id), .rqe_id(rqe_id),
                                   .sequence_no(num));
             end
             51: begin
               run_packer_flush_slot_case(.tag(id),
                                          .slot_words(RDMA_DMA_OPQ_PER_BEAT),
-                                         .sqe_id(sqe_id),
+                                         .rqe_id(rqe_id),
                                          .sequence_no(num));
               check_u32_equal(id, "job_event_count", vif.job_event_count,
                               32'd1);
             end
             52: begin
-              run_zero_byte_eoe_idle_case(.tag(id), .sqe_id(sqe_id),
+              run_zero_byte_eoe_idle_case(.tag(id), .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             53: begin
@@ -9642,7 +9642,7 @@ package rdma_dma_engine_pkg;
                 .expected_seg1_aw(64'h0000_0000_0020_0000),
                 .check_last_aw(1'b1),
                 .expected_last_aw(64'h0000_0000_0020_0e00),
-                .sqe_id(sqe_id), .sequence_no(num));
+                .rqe_id(rqe_id), .sequence_no(num));
             end
             54: begin
               run_segment_boundary_edge_case(.tag(id),
@@ -9656,7 +9656,7 @@ package rdma_dma_engine_pkg;
                 .expected_seg1_aw(64'h0000_0000_0020_0000),
                 .check_last_aw(1'b1),
                 .expected_last_aw(64'h0000_0000_0020_0e00),
-                .sqe_id(sqe_id), .sequence_no(num),
+                .rqe_id(rqe_id), .sequence_no(num),
                 .idle_after_each(1));
             end
             55: begin
@@ -9671,7 +9671,7 @@ package rdma_dma_engine_pkg;
                 .expected_seg1_aw(64'h0000_0000_0020_0000),
                 .check_last_aw(1'b0),
                 .expected_last_aw(64'h0000_0000_0010_0000),
-                .sqe_id(sqe_id), .sequence_no(num));
+                .rqe_id(rqe_id), .sequence_no(num));
             end
             56: begin
               run_segment_boundary_edge_case(.tag(id),
@@ -9685,7 +9685,7 @@ package rdma_dma_engine_pkg;
                 .expected_seg1_aw(64'h0000_0000_0020_0000),
                 .check_last_aw(1'b1),
                 .expected_last_aw(64'h0000_0000_0020_0000),
-                .sqe_id(sqe_id), .sequence_no(num));
+                .rqe_id(rqe_id), .sequence_no(num));
             end
             57: begin
               run_segment_boundary_edge_case(.tag(id),
@@ -9699,7 +9699,7 @@ package rdma_dma_engine_pkg;
                 .expected_seg1_aw(64'h0000_0000_0020_0000),
                 .check_last_aw(1'b1),
                 .expected_last_aw(64'h0000_0000_0020_0e00),
-                .sqe_id(sqe_id), .sequence_no(num),
+                .rqe_id(rqe_id), .sequence_no(num),
                 .wready_lag(4));
             end
             58: begin
@@ -9714,7 +9714,7 @@ package rdma_dma_engine_pkg;
                 .expected_seg1_aw(64'h0000_0000_0020_0000),
                 .check_last_aw(1'b1),
                 .expected_last_aw(64'h0000_0000_0020_0e00),
-                .sqe_id(sqe_id), .sequence_no(num));
+                .rqe_id(rqe_id), .sequence_no(num));
             end
             59: begin
               run_segment_boundary_edge_case(.tag(id),
@@ -9728,10 +9728,10 @@ package rdma_dma_engine_pkg;
                 .expected_seg1_aw(64'h0000_0000_0020_0000),
                 .check_last_aw(1'b1),
                 .expected_last_aw(64'h0000_0000_0020_0600),
-                .sqe_id(sqe_id), .sequence_no(num));
+                .rqe_id(rqe_id), .sequence_no(num));
             end
             60: begin
-              run_segment_latency_case(.tag(id), .sqe_id(sqe_id));
+              run_segment_latency_case(.tag(id), .rqe_id(rqe_id));
             end
             61: begin
               run_segment_boundary_edge_case(.tag(id),
@@ -9745,7 +9745,7 @@ package rdma_dma_engine_pkg;
                 .expected_seg1_aw(64'h0000_0000_0020_0000),
                 .check_last_aw(1'b1),
                 .expected_last_aw(64'h0000_0000_0020_0e00),
-                .sqe_id(sqe_id), .sequence_no(num),
+                .rqe_id(rqe_id), .sequence_no(num),
                 .idle_after_each(2));
             end
             62: begin
@@ -9760,18 +9760,18 @@ package rdma_dma_engine_pkg;
                 .expected_seg1_aw(64'h0000_0001_0000_0000),
                 .check_last_aw(1'b1),
                 .expected_last_aw(64'h0000_0001_0000_0e00),
-                .sqe_id(sqe_id), .sequence_no(num));
+                .rqe_id(rqe_id), .sequence_no(num));
             end
             63: begin
-              run_exact_full_burst_eoe_case(.tag(id), .sqe_id(sqe_id),
+              run_exact_full_burst_eoe_case(.tag(id), .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             64: begin
-              run_eoe_after_full_burst_case(.tag(id), .sqe_id(sqe_id),
+              run_eoe_after_full_burst_case(.tag(id), .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -9779,91 +9779,91 @@ package rdma_dma_engine_pkg;
         if (num <= 80) begin
           case (num)
             65: begin
-              run_eoe_during_aw_phase_case(.tag(id), .sqe_id(sqe_id),
+              run_eoe_during_aw_phase_case(.tag(id), .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             66: begin
-              run_program_phase_eoe_case(.tag(id), .sqe_id(sqe_id),
+              run_program_phase_eoe_case(.tag(id), .rqe_id(rqe_id),
                                          .sequence_no(num));
             end
             67: begin
-              run_full_boundary_case(.tag(id), .sqe_id(sqe_id),
+              run_full_boundary_case(.tag(id), .rqe_id(rqe_id),
                                      .sequence_no(num),
                                      .send_eoe_at_full(1'b0));
             end
             68: begin
-              run_align_error_no_write_case(.tag(id), .sqe_id(sqe_id),
+              run_align_error_no_write_case(.tag(id), .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             69: begin
-              run_full_boundary_case(.tag(id), .sqe_id(sqe_id),
+              run_full_boundary_case(.tag(id), .rqe_id(rqe_id),
                                      .sequence_no(num),
                                      .send_eoe_at_full(1'b0));
             end
             70: begin
-              run_full_boundary_case(.tag(id), .sqe_id(sqe_id),
+              run_full_boundary_case(.tag(id), .rqe_id(rqe_id),
                                      .sequence_no(num),
                                      .send_eoe_at_full(1'b1));
             end
             71: begin
               run_two_job_one_cycle_after_done_case(
-                .tag(id), .first_sqe_id(sqe_id),
-                .second_sqe_id(sqe_id + 16'd1), .sequence_no(num));
+                .tag(id), .first_rqe_id(rqe_id),
+                .second_rqe_id(rqe_id + 16'd1), .sequence_no(num));
             end
             72: begin
-              run_done_pulse_report_case(.tag(id), .sqe_id(sqe_id),
+              run_done_pulse_report_case(.tag(id), .rqe_id(rqe_id),
                                          .check_report_hold(1'b0),
                                          .check_req_overlap(1'b1));
             end
             73: begin
               run_two_jobs_with_gap_case(.tag(id), .gap_cycles(0),
-                                         .first_sqe_id(16'h1234),
-                                         .second_sqe_id(16'h1234),
+                                         .first_rqe_id(16'h1234),
+                                         .second_rqe_id(16'h1234),
                                          .sequence_no(num));
             end
             74: begin
               run_two_jobs_with_gap_case(.tag(id), .gap_cycles(0),
-                                         .first_sqe_id(16'h0000),
-                                         .second_sqe_id(16'hffff),
+                                         .first_rqe_id(16'h0000),
+                                         .second_rqe_id(16'hffff),
                                          .sequence_no(num));
             end
             75: begin
               run_dma_job(.tag({id, "_job0"}), .opq_words(8),
-                          .send_eoe(1'b1), .sqe_id(sqe_id),
+                          .send_eoe(1'b1), .rqe_id(rqe_id),
                           .sequence_no(num));
               run_dma_job(.tag({id, "_job1"}), .opq_words(8),
-                          .send_eoe(1'b1), .sqe_id(sqe_id + 16'd1),
+                          .send_eoe(1'b1), .rqe_id(rqe_id + 16'd1),
                           .sequence_no(num + 32'd100));
               run_dma_job(.tag({id, "_job2"}), .opq_words(8),
-                          .send_eoe(1'b1), .sqe_id(sqe_id + 16'd2),
+                          .send_eoe(1'b1), .rqe_id(rqe_id + 16'd2),
                           .sequence_no(num + 32'd200));
               check_u32_equal(id, "job_done_count", env.scb.job_done_count,
                               32'd3);
             end
             76: begin
               run_two_jobs_with_gap_case(.tag(id), .gap_cycles(1000),
-                                         .first_sqe_id(sqe_id),
-                                         .second_sqe_id(sqe_id + 16'd1),
+                                         .first_rqe_id(rqe_id),
+                                         .second_rqe_id(rqe_id + 16'd1),
                                          .sequence_no(num));
             end
             77: begin
               run_two_jobs_with_gap_case(.tag(id), .gap_cycles(0),
-                                         .first_sqe_id(sqe_id),
-                                         .second_sqe_id(sqe_id + 16'd1),
+                                         .first_rqe_id(rqe_id),
+                                         .second_rqe_id(rqe_id + 16'd1),
                                          .sequence_no(num));
             end
             78: begin
-              run_mixed_span_two_job_case(.tag(id), .sqe_id(sqe_id),
+              run_mixed_span_two_job_case(.tag(id), .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             79: begin
-              run_dbg1_w_remaining_case(.tag(id), .sqe_id(sqe_id));
+              run_dbg1_w_remaining_case(.tag(id), .rqe_id(rqe_id));
             end
             80: begin
-              run_dbg1_aw_inflight_case(.tag(id), .sqe_id(sqe_id));
+              run_dbg1_aw_inflight_case(.tag(id), .rqe_id(rqe_id));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -9874,70 +9874,70 @@ package rdma_dma_engine_pkg;
               run_dbg1_idle_aw_inflight_case(.tag(id));
             end
             82: begin
-              run_packer_pending_eoe_case(.tag(id), .sqe_id(sqe_id),
+              run_packer_pending_eoe_case(.tag(id), .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             83: begin
-              run_writer_state_cycle_case(.tag(id), .sqe_id(sqe_id),
+              run_writer_state_cycle_case(.tag(id), .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             84: begin
               run_halt_count_job(.tag(id), .dropped_words(4),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             85: begin
-              run_dbg2_slot5_padding_case(.tag(id), .sqe_id(sqe_id),
+              run_dbg2_slot5_padding_case(.tag(id), .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             86: begin
-              run_dbg2_halt_residual_case(.tag(id), .sqe_id(sqe_id),
+              run_dbg2_halt_residual_case(.tag(id), .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             87: begin
-              run_dbg2_hit_id_wrap_case(.tag(id), .sqe_id(sqe_id),
+              run_dbg2_hit_id_wrap_case(.tag(id), .rqe_id(rqe_id),
                                         .sequence_no(num));
             end
             88: begin
-              run_dbg2_monotonic_sequence_case(.tag(id), .sqe_id(sqe_id),
+              run_dbg2_monotonic_sequence_case(.tag(id), .rqe_id(rqe_id),
                                                .sequence_no(num));
             end
             89: begin
-              run_dbg2_monotonic_source_ts_case(.tag(id), .sqe_id(sqe_id),
+              run_dbg2_monotonic_source_ts_case(.tag(id), .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             90: begin
-              run_dbg2_inert_dbg1_case(.tag(id), .sqe_id(sqe_id),
+              run_dbg2_inert_dbg1_case(.tag(id), .rqe_id(rqe_id),
                                        .sequence_no(num));
             end
             91: begin
-              run_random_span_grid_case(.tag(id), .sqe_id(sqe_id),
+              run_random_span_grid_case(.tag(id), .rqe_id(rqe_id),
                                         .sequence_no(num));
             end
             92: begin
-              run_random_eoe_slot_case(.tag(id), .sqe_id(sqe_id),
+              run_random_eoe_slot_case(.tag(id), .rqe_id(rqe_id),
                                        .sequence_no(num));
             end
             93: begin
               run_random_two_segment_transition_case(.tag(id),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             end
             94: begin
-              run_random_burst_size_case(.tag(id), .sqe_id(sqe_id),
+              run_random_burst_size_case(.tag(id), .rqe_id(rqe_id),
                                          .sequence_no(num));
             end
             95: begin
-              run_fifo_threshold_edge_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_threshold_edge_case(.tag(id), .rqe_id(rqe_id),
                                            .check_crossing(1'b1),
                                            .check_drain(1'b0),
                                            .sequence_no(num));
             end
             96: begin
-              run_fifo_above_threshold_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_above_threshold_case(.tag(id), .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -9946,143 +9946,143 @@ package rdma_dma_engine_pkg;
           case (num)
             97: begin
               run_fifo_overfill_guard_case(.tag(id), .attempted_entries(63),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             98: begin
               run_fifo_overfill_guard_case(.tag(id), .attempted_entries(64),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             99: begin
-              run_fifo_recovery_after_halt_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_recovery_after_halt_case(.tag(id), .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             100: begin
-              run_fifo_simultaneous_rw_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_simultaneous_rw_case(.tag(id), .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             101: begin
-              run_fifo_single_write_burst_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_single_write_burst_case(.tag(id), .rqe_id(rqe_id),
                                                .sequence_no(num));
             end
             102: begin
-              run_fifo_single_read_burst_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_single_read_burst_case(.tag(id), .rqe_id(rqe_id),
                                               .sequence_no(num));
             end
             103: begin
               run_writer_align_err_transition_case(.tag(id),
-                                                   .sqe_id(sqe_id));
+                                                   .rqe_id(rqe_id));
             end
             104: begin
-              run_writer_two_segment_program_case(.tag(id), .sqe_id(sqe_id),
+              run_writer_two_segment_program_case(.tag(id), .rqe_id(rqe_id),
                                                   .sequence_no(num));
             end
             105: begin
-              run_writer_b_to_aw_case(.tag(id), .sqe_id(sqe_id),
+              run_writer_b_to_aw_case(.tag(id), .rqe_id(rqe_id),
                                       .sequence_no(num));
             end
             106: begin
               run_writer_stall_case(.tag(id), .state(4'd2), .aw_lag(64),
-                                    .w_lag(0), .b_lag(1), .sqe_id(sqe_id),
+                                    .w_lag(0), .b_lag(1), .rqe_id(rqe_id),
                                     .sequence_no(num));
             end
             107: begin
               run_writer_stall_case(.tag(id), .state(4'd3), .aw_lag(0),
-                                    .w_lag(64), .b_lag(1), .sqe_id(sqe_id),
+                                    .w_lag(64), .b_lag(1), .rqe_id(rqe_id),
                                     .sequence_no(num));
             end
             108: begin
               run_writer_stall_case(.tag(id), .state(4'd4), .aw_lag(0),
-                                    .w_lag(0), .b_lag(64), .sqe_id(sqe_id),
+                                    .w_lag(0), .b_lag(64), .rqe_id(rqe_id),
                                     .sequence_no(num));
             end
             109: begin
-              run_counter_input_saturation_case(.tag(id), .sqe_id(sqe_id),
+              run_counter_input_saturation_case(.tag(id), .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             110: begin
-              run_counter_bytes_saturation_case(.tag(id), .sqe_id(sqe_id),
+              run_counter_bytes_saturation_case(.tag(id), .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             111: begin
               run_counter_clear_max_case(.tag(id));
             end
             112: begin
-              run_job_req_opq_idle_case(.tag(id), .sqe_id(sqe_id),
+              run_job_req_opq_idle_case(.tag(id), .rqe_id(rqe_id),
                                         .sequence_no(num));
             end
             113: begin
-              run_job_req_immediate_opq_case(.tag(id), .sqe_id(sqe_id),
+              run_job_req_immediate_opq_case(.tag(id), .rqe_id(rqe_id),
                                              .sequence_no(num));
             end
             114: begin
-              run_opq_before_job_case(.tag(id), .sqe_id(sqe_id),
+              run_opq_before_job_case(.tag(id), .rqe_id(rqe_id),
                                       .sequence_no(num));
             end
             115: begin
-              run_high_half_address_case(.tag(id), .sqe_id(sqe_id),
+              run_high_half_address_case(.tag(id), .rqe_id(rqe_id),
                                          .sequence_no(num));
             end
             116: begin
-              run_opq_after_done_ignored_case(.tag(id), .sqe_id(sqe_id),
+              run_opq_after_done_ignored_case(.tag(id), .rqe_id(rqe_id),
                                               .sequence_no(num));
             end
             117: begin
-              run_random_eoe_throttled_case(.tag(id), .sqe_id(sqe_id),
+              run_random_eoe_throttled_case(.tag(id), .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             118: begin
-              run_random_alignment_mix_case(.tag(id), .sqe_id(sqe_id),
+              run_random_alignment_mix_case(.tag(id), .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             119: begin
-              run_random_multi_event_drains_case(.tag(id), .sqe_id(sqe_id),
+              run_random_multi_event_drains_case(.tag(id), .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             120: begin
-              run_random_span_eoe_throttle_case(.tag(id), .sqe_id(sqe_id),
+              run_random_span_eoe_throttle_case(.tag(id), .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             121: begin
-              run_first_last_ts_equal_case(.tag(id), .sqe_id(sqe_id),
+              run_first_last_ts_equal_case(.tag(id), .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             122: begin
-              run_first_event_ts_capture_case(.tag(id), .sqe_id(sqe_id),
+              run_first_event_ts_capture_case(.tag(id), .rqe_id(rqe_id),
                                               .sequence_no(num));
             end
             123: begin
-              run_last_ts_later_event_case(.tag(id), .sqe_id(sqe_id),
+              run_last_ts_later_event_case(.tag(id), .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             124: begin
-              run_two_jobs_clean_fifo_case(.tag(id), .sqe_id(sqe_id),
+              run_two_jobs_clean_fifo_case(.tag(id), .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             125: begin
               run_two_job_one_cycle_after_done_case(
-                .tag(id), .first_sqe_id(sqe_id),
-                .second_sqe_id(sqe_id + 16'd1), .sequence_no(num));
+                .tag(id), .first_rqe_id(rqe_id),
+                .second_rqe_id(rqe_id + 16'd1), .sequence_no(num));
             end
             126: begin
-              run_three_back_to_back_jobs_case(.tag(id), .sqe_id(sqe_id),
+              run_three_back_to_back_jobs_case(.tag(id), .rqe_id(rqe_id),
                                                .sequence_no(num));
             end
             127: begin
-              run_two_segment_then_single_case(.tag(id), .sqe_id(sqe_id),
+              run_two_segment_then_single_case(.tag(id), .rqe_id(rqe_id),
                                                .sequence_no(num));
             end
             128: begin
               run_phase_b_coverage_closure_case(.tag({id, "_coverage"}),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
               apply_midrun_reset();
-              run_align_error_then_clean_case(.tag(id), .sqe_id(sqe_id),
+              run_align_error_then_clean_case(.tag(id), .rqe_id(rqe_id),
                                               .sequence_no(num));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -10115,61 +10115,61 @@ package rdma_dma_engine_pkg;
               run_profile_multi_event_case(.tag(id), .event_count(100),
                                            .words_per_event(64),
                                            .gap_cycles(0), .bvalid_lag(1),
-                                           .wready_lag(0), .sqe_id(sqe_id),
+                                           .wready_lag(0), .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             2: begin
               run_profile_multi_event_case(.tag(id), .event_count(100),
                                            .words_per_event(64),
                                            .gap_cycles(0), .bvalid_lag(250),
-                                           .wready_lag(0), .sqe_id(sqe_id),
+                                           .wready_lag(0), .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             3: begin
               run_halt_count_job(.tag(id), .dropped_words(100),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             4: begin
               run_profile_multi_event_case(.tag(id), .event_count(256),
                                            .words_per_event(64),
                                            .gap_cycles(0), .bvalid_lag(1),
-                                           .wready_lag(0), .sqe_id(sqe_id),
+                                           .wready_lag(0), .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             5: begin
               run_profile_single_load_case(.tag(id), .opq_words(6400),
                                            .idle_after_each(1),
                                            .wready_lag(0), .bvalid_lag(1),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             6: begin
               run_profile_single_load_case(.tag(id), .opq_words(6400),
                                            .idle_after_each(0),
                                            .wready_lag(1), .bvalid_lag(1),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             7: begin
               run_profile_single_load_case(.tag(id), .opq_words(800),
                                            .idle_after_each(9),
                                            .wready_lag(0), .bvalid_lag(1),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             8: begin
               run_halt_count_job(.tag(id), .dropped_words(32),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             9: begin
               run_profile_job_stream_case(.tag(id), .job_count(32),
                                           .words_per_job(1024),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b0),
-                                          .random_sqe(1'b0),
+                                          .random_rqe(1'b0),
                                           .gap_cycles(0),
                                           .variable_lag(1'b0),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             10: begin
@@ -10177,10 +10177,10 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(4096),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b0),
-                                          .random_sqe(1'b0),
+                                          .random_rqe(1'b0),
                                           .gap_cycles(0),
                                           .variable_lag(1'b0),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             11: begin
@@ -10188,10 +10188,10 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(1032),
                                           .two_segment(1'b1),
                                           .mixed_span(1'b0),
-                                          .random_sqe(1'b0),
+                                          .random_rqe(1'b0),
                                           .gap_cycles(0),
                                           .variable_lag(1'b0),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             12: begin
@@ -10199,10 +10199,10 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(512),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b1),
-                                          .random_sqe(1'b0),
+                                          .random_rqe(1'b0),
                                           .gap_cycles(0),
                                           .variable_lag(1'b1),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             13: begin
@@ -10210,10 +10210,10 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(64),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b0),
-                                          .random_sqe(1'b1),
+                                          .random_rqe(1'b1),
                                           .gap_cycles(0),
                                           .variable_lag(1'b0),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             14: begin
@@ -10221,10 +10221,10 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(128),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b0),
-                                          .random_sqe(1'b0),
+                                          .random_rqe(1'b0),
                                           .gap_cycles(0),
                                           .variable_lag(1'b0),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             15: begin
@@ -10232,10 +10232,10 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(64),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b0),
-                                          .random_sqe(1'b0),
+                                          .random_rqe(1'b0),
                                           .gap_cycles(100),
                                           .variable_lag(1'b0),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             16: begin
@@ -10243,14 +10243,14 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(128),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b1),
-                                          .random_sqe(1'b0),
+                                          .random_rqe(1'b0),
                                           .gap_cycles(0),
                                           .variable_lag(1'b1),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -10264,7 +10264,7 @@ package rdma_dma_engine_pkg;
                                             .min_avg_awlen_milli(14000),
                                             .max_avg_awlen_milli(15000),
                                             .min_util_milli(900),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             18: begin
@@ -10274,7 +10274,7 @@ package rdma_dma_engine_pkg;
                                             .min_avg_awlen_milli(7000),
                                             .max_avg_awlen_milli(8000),
                                             .min_util_milli(500),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             19: begin
@@ -10284,7 +10284,7 @@ package rdma_dma_engine_pkg;
                                             .min_avg_awlen_milli(0),
                                             .max_avg_awlen_milli(2000),
                                             .min_util_milli(60),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             20: begin
@@ -10292,7 +10292,7 @@ package rdma_dma_engine_pkg;
                                              .wready_lag(8),
                                              .bvalid_lag(32),
                                              .min_max_level(RDMA_DMA_MAX_BURST_BEATS),
-                                             .sqe_id(sqe_id),
+                                             .rqe_id(rqe_id),
                                              .sequence_no(num));
             end
             21: begin
@@ -10302,7 +10302,7 @@ package rdma_dma_engine_pkg;
                                             .min_avg_awlen_milli(14000),
                                             .max_avg_awlen_milli(15000),
                                             .min_util_milli(800),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             22: begin
@@ -10312,21 +10312,21 @@ package rdma_dma_engine_pkg;
                                             .min_avg_awlen_milli(14000),
                                             .max_avg_awlen_milli(15000),
                                             .min_util_milli(900),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             23: begin
               run_profile_single_load_case(.tag(id), .opq_words(4096),
                                            .idle_after_each(1),
                                            .wready_lag(0), .bvalid_lag(1),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             24: begin
               run_profile_multi_event_case(.tag(id), .event_count(512),
                                            .words_per_event(8),
                                            .gap_cycles(0), .bvalid_lag(1),
-                                           .wready_lag(0), .sqe_id(sqe_id),
+                                           .wready_lag(0), .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             25: begin
@@ -10334,43 +10334,43 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(128),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b1),
-                                          .random_sqe(1'b0),
+                                          .random_rqe(1'b0),
                                           .gap_cycles(0),
                                           .variable_lag(1'b1),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             26: begin
               run_halt_count_job(.tag(id), .dropped_words(32),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             27: begin
               run_profile_counter_clear_conservation_case(.tag(id),
-                                                          .sqe_id(sqe_id),
+                                                          .rqe_id(rqe_id),
                                                           .sequence_no(num));
             end
             28: begin
               run_halt_count_job(.tag(id), .dropped_words(100),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             29: begin
               run_halt_count_job(.tag(id), .dropped_words(16),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             30: begin
               run_halt_count_job(.tag(id), .dropped_words(64),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             31: begin
-              run_fifo_recovery_after_halt_case(.tag(id), .sqe_id(sqe_id),
+              run_fifo_recovery_after_halt_case(.tag(id), .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             32: begin
-              run_profile_halt_one_of_five_case(.tag(id), .sqe_id(sqe_id),
+              run_profile_halt_one_of_five_case(.tag(id), .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -10381,69 +10381,69 @@ package rdma_dma_engine_pkg;
               run_profile_latency_case(.tag(id), .opq_words(1024),
                                        .wready_lag(0), .bvalid_lag(1),
                                        .min_cycles(1), .max_cycles(100000),
-                                       .sqe_id(sqe_id), .sequence_no(num));
+                                       .rqe_id(rqe_id), .sequence_no(num));
             end
             34: begin
               run_profile_latency_case(.tag(id), .opq_words(4096),
                                        .wready_lag(12), .bvalid_lag(32),
                                        .min_cycles(4096), .max_cycles(0),
-                                       .sqe_id(sqe_id), .sequence_no(num));
+                                       .rqe_id(rqe_id), .sequence_no(num));
             end
             35: begin
               run_profile_average_latency_case(.tag(id), .job_count(100),
                                                .words_per_job(16),
-                                               .sqe_id(sqe_id),
+                                               .rqe_id(rqe_id),
                                                .sequence_no(num));
             end
             36: begin
-              run_profile_halt_latency_case(.tag(id), .sqe_id(sqe_id),
+              run_profile_halt_latency_case(.tag(id), .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             37: begin
               run_profile_fifo_hold_case(.tag(id), .target_level(128),
                                          .hold_cycles(10000),
                                          .expect_almost_full(1'b0),
-                                         .sqe_id(sqe_id),
+                                         .rqe_id(rqe_id),
                                          .sequence_no(num));
             end
             38: begin
               run_profile_fifo_hold_case(.tag(id), .target_level(192),
                                          .hold_cycles(2048),
                                          .expect_almost_full(1'b1),
-                                         .sqe_id(sqe_id),
+                                         .rqe_id(rqe_id),
                                          .sequence_no(num));
             end
             39: begin
-              run_profile_fifo_oscillation_case(.tag(id), .sqe_id(sqe_id),
+              run_profile_fifo_oscillation_case(.tag(id), .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             40: begin
               run_profile_fifo_hold_case(.tag(id), .target_level(192),
                                          .hold_cycles(1000),
                                          .expect_almost_full(1'b1),
-                                         .sqe_id(sqe_id),
+                                         .rqe_id(rqe_id),
                                          .sequence_no(num));
             end
             41: begin
               run_profile_dbg1_invariant_soak_case(.tag(id),
                                                    .soak_cycles(100000),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             end
             42: begin
               run_profile_halt_accounting_soak_case(.tag(id),
-                                                    .sqe_id(sqe_id),
+                                                    .rqe_id(rqe_id),
                                                     .sequence_no(num));
             end
             43: begin
-              run_profile_fifo_histogram_case(.tag(id), .sqe_id(sqe_id),
+              run_profile_fifo_histogram_case(.tag(id), .rqe_id(rqe_id),
                                               .sequence_no(num));
             end
             44: begin
               run_profile_single_load_case(.tag(id), .opq_words(100000),
                                            .idle_after_each(0),
                                            .wready_lag(0), .bvalid_lag(1),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             45: begin
@@ -10451,10 +10451,10 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(32),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b0),
-                                          .random_sqe(1'b0),
+                                          .random_rqe(1'b0),
                                           .gap_cycles(0),
                                           .variable_lag(1'b0),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             46: begin
@@ -10462,23 +10462,23 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(128),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b1),
-                                          .random_sqe(1'b1),
+                                          .random_rqe(1'b1),
                                           .gap_cycles(1),
                                           .variable_lag(1'b1),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             47: begin
               run_halt_count_job(.tag(id), .dropped_words(32),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
             end
             48: begin
               run_profile_random_host_lag_case(.tag(id), .job_count(32),
-                                               .sqe_id(sqe_id),
+                                               .rqe_id(rqe_id),
                                                .sequence_no(num));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -10487,17 +10487,17 @@ package rdma_dma_engine_pkg;
           case (num)
             49: begin
               run_profile_random_bvalid_case(.tag(id), .job_count(32),
-                                             .sqe_id(sqe_id),
+                                             .rqe_id(rqe_id),
                                              .sequence_no(num));
             end
             50: begin
               run_profile_random_idle_case(.tag(id), .job_count(32),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             51: begin
               run_profile_random_combo_case(.tag(id), .job_count(32),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             52: begin
@@ -10505,10 +10505,10 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(128),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b1),
-                                          .random_sqe(1'b1),
+                                          .random_rqe(1'b1),
                                           .gap_cycles(0),
                                           .variable_lag(1'b1),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             53: begin
@@ -10516,10 +10516,10 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(1032),
                                           .two_segment(1'b1),
                                           .mixed_span(1'b1),
-                                          .random_sqe(1'b1),
+                                          .random_rqe(1'b1),
                                           .gap_cycles(0),
                                           .variable_lag(1'b1),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             54: begin
@@ -10527,17 +10527,17 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(64),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b1),
-                                          .random_sqe(1'b1),
+                                          .random_rqe(1'b1),
                                           .gap_cycles(1),
                                           .variable_lag(1'b1),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             55: begin
               run_profile_multi_event_case(.tag(id), .event_count(1000),
                                            .words_per_event(8),
                                            .gap_cycles(0), .bvalid_lag(1),
-                                           .wready_lag(0), .sqe_id(sqe_id),
+                                           .wready_lag(0), .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             56: begin
@@ -10547,40 +10547,40 @@ package rdma_dma_engine_pkg;
                                             .min_avg_awlen_milli(14000),
                                             .max_avg_awlen_milli(15000),
                                             .min_util_milli(900),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             57: begin
               run_profile_latency_case(.tag(id), .opq_words(6400),
                                        .wready_lag(0), .bvalid_lag(1),
                                        .min_cycles(1), .max_cycles(120000),
-                                       .sqe_id(sqe_id), .sequence_no(num));
+                                       .rqe_id(rqe_id), .sequence_no(num));
             end
             58: begin
               run_profile_multi_event_case(.tag(id), .event_count(100),
                                            .words_per_event(64),
                                            .gap_cycles(0), .bvalid_lag(1),
-                                           .wready_lag(0), .sqe_id(sqe_id),
+                                           .wready_lag(0), .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             59: begin
               run_profile_latency_case(.tag(id), .opq_words(1024),
                                        .wready_lag(0), .bvalid_lag(1),
                                        .min_cycles(1), .max_cycles(100000),
-                                       .sqe_id(sqe_id), .sequence_no(num));
+                                       .rqe_id(rqe_id), .sequence_no(num));
             end
             60: begin
               run_profile_single_load_case(.tag(id), .opq_words(100000),
                                            .idle_after_each(1),
                                            .wready_lag(0), .bvalid_lag(1),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             61: begin
               run_profile_single_load_case(.tag(id), .opq_words(100000),
                                            .idle_after_each(0),
                                            .wready_lag(0), .bvalid_lag(1),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             62: begin
@@ -10588,28 +10588,28 @@ package rdma_dma_engine_pkg;
                                           .words_per_job(8),
                                           .two_segment(1'b0),
                                           .mixed_span(1'b0),
-                                          .random_sqe(1'b0),
+                                          .random_rqe(1'b0),
                                           .gap_cycles(0),
                                           .variable_lag(1'b0),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             end
             63: begin
               run_profile_fixed_host_lag_jobs(.tag(id), .job_count(100),
                                               .wready_lag(100),
                                               .words_per_job(16),
-                                              .sqe_id(sqe_id),
+                                              .rqe_id(rqe_id),
                                               .sequence_no(num));
             end
             64: begin
               run_profile_fixed_host_lag_jobs(.tag(id), .job_count(100),
                                               .wready_lag(500),
                                               .words_per_job(16),
-                                              .sqe_id(sqe_id),
+                                              .rqe_id(rqe_id),
                                               .sequence_no(num));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -10620,14 +10620,14 @@ package rdma_dma_engine_pkg;
               run_profile_variable_host_lag_case(.tag(id), .job_count(100),
                                                  .max_lag(500),
                                                  .words_per_job(16),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             66: begin
               run_profile_fixed_bvalid_jobs(.tag(id), .job_count(1000),
                                             .bvalid_lag(250),
                                             .words_per_job(8),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             67: begin
@@ -10635,53 +10635,53 @@ package rdma_dma_engine_pkg;
                                                     .job_count(5000),
                                                     .idle_after_each(1),
                                                     .words_per_job(8),
-                                                    .sqe_id(sqe_id),
+                                                    .rqe_id(rqe_id),
                                                     .sequence_no(num));
             end
             68: begin
               run_profile_multi_event_case(.tag(id), .event_count(10000),
                                            .words_per_event(1),
                                            .gap_cycles(0), .bvalid_lag(1),
-                                           .wready_lag(0), .sqe_id(sqe_id),
+                                           .wready_lag(0), .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             69: begin
               run_fifo_overfill_guard_case(.tag(id), .attempted_entries(2),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             70: begin
               run_profile_single_load_case(.tag(id), .opq_words(4096),
                                            .idle_after_each(1),
                                            .wready_lag(0), .bvalid_lag(1),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             71: begin
               run_profile_single_load_case(.tag(id), .opq_words(2048),
                                            .idle_after_each(3),
                                            .wready_lag(0), .bvalid_lag(1),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             72: begin
               run_fifo_overfill_guard_case(.tag(id), .attempted_entries(8),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             73: begin
               run_profile_bursty_input_case(.tag(id), .job_count(32),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             end
             74: begin
               run_profile_output_bursty_case(.tag(id), .job_count(64),
-                                             .sqe_id(sqe_id),
+                                             .rqe_id(rqe_id),
                                              .sequence_no(num));
             end
             75: begin
               run_profile_random_rate_bound_case(.tag(id), .job_count(48),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             76: begin
@@ -10724,11 +10724,11 @@ package rdma_dma_engine_pkg;
               run_profile_halt_rate_consistency_case(.tag(id),
                                                      .seed_a(100),
                                                      .seed_b(200),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -10745,31 +10745,31 @@ package rdma_dma_engine_pkg;
               run_profile_single_load_case(.tag(id), .opq_words(100000),
                                            .idle_after_each(0),
                                            .wready_lag(0), .bvalid_lag(1),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             83: begin
               run_profile_debug2_halt_scale_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             84: begin
               run_profile_debug2_residual_bound_case(.tag(id),
                                                      .opq_words(4096),
                                                      .max_residual(260),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             end
             85: begin
               run_profile_counter_clear_replay_case(.tag(id),
-                                                    .sqe_id(sqe_id),
+                                                    .rqe_id(rqe_id),
                                                     .sequence_no(num));
             end
             86: begin
               run_profile_checkpoint_residual_case(.tag(id),
                                                    .checkpoint_count(8),
                                                    .words_per_checkpoint(12500),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             end
             87: begin
@@ -10782,24 +10782,24 @@ package rdma_dma_engine_pkg;
                                                       .wready_lag(0));
             end
             88: begin
-              run_align_error_then_clean_case(.tag(id), .sqe_id(sqe_id),
+              run_align_error_then_clean_case(.tag(id), .rqe_id(rqe_id),
                                               .sequence_no(num));
             end
             89: begin
               run_profile_exact_awlen_case(.tag(id), .opq_words(120),
                                            .expected_awlen(8'd14),
-                                           .sqe_id(sqe_id),
+                                           .rqe_id(rqe_id),
                                            .sequence_no(num));
             end
             90: begin
               run_profile_fifo_threshold_hammer_case(.tag(id),
                                                      .iteration_count(100),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             end
             91: begin
               run_halt_count_job(.tag(id), .dropped_words(16),
-                                 .sqe_id(sqe_id), .sequence_no(num));
+                                 .rqe_id(rqe_id), .sequence_no(num));
               check_status_bit(id, "status[HALT]", RDMA_DMA_ST_HALT, 1'b1);
               check_status_bit(id, "status[EOE]", RDMA_DMA_ST_EOE, 1'b1);
             end
@@ -10810,7 +10810,7 @@ package rdma_dma_engine_pkg;
                                                  .total_words(2048),
                                                  .expect_full(1'b1),
                                                  .expect_boundary(1'b0),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             93: begin
@@ -10820,48 +10820,48 @@ package rdma_dma_engine_pkg;
                                                  .total_words(2048),
                                                  .expect_full(1'b0),
                                                  .expect_boundary(1'b1),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             94: begin
               run_profile_clear_during_reset_case(.tag(id),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             end
             95: begin
               run_profile_aw_to_w_latency_metric_case(.tag(id),
                                                       .job_count(100),
-                                                      .sqe_id(sqe_id),
+                                                      .rqe_id(rqe_id),
                                                       .sequence_no(num));
             end
             96: begin
               run_profile_wlast_to_bvalid_metric_case(.tag(id),
                                                       .job_count(100),
-                                                      .sqe_id(sqe_id),
+                                                      .rqe_id(rqe_id),
                                                       .sequence_no(num));
             end
             97: begin
               run_profile_job_req_to_aw_metric_case(.tag(id),
                                                     .job_count(100),
-                                                    .sqe_id(sqe_id),
+                                                    .rqe_id(rqe_id),
                                                     .sequence_no(num));
             end
             98: begin
               run_profile_b_to_done_metric_case(.tag(id),
                                                 .job_count(100),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             99: begin
               run_profile_awlen_distribution_case(.tag(id),
                                                  .min_bursts(1000),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             100: begin
               run_profile_fifo_occupancy_histogram_case(.tag(id),
                                                        .opq_words(4096),
-                                                       .sqe_id(sqe_id),
+                                                       .rqe_id(rqe_id),
                                                        .sequence_no(num));
             end
             101: begin
@@ -10876,172 +10876,172 @@ package rdma_dma_engine_pkg;
             102: begin
               run_profile_fifo_convergence_case(.tag(id),
                                                 .opq_words(32768),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             103: begin
               run_profile_halt_rate_convergence_case(.tag(id),
                                                      .sample_count(16),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             end
             104: begin
               run_profile_latency_p99_stability_case(.tag(id),
                                                      .job_count(1000),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             end
             105: begin
               run_profile_random_aw_burst_sweep_case(.tag(id),
                                                      .iteration_count(256),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             end
             106: begin
               run_profile_random_packer_sweep_case(.tag(id),
                                                    .iteration_count(256),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             end
             107: begin
               run_profile_random_fifo_sweep_case(.tag(id),
                                                  .iteration_count(256),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             108: begin
               run_profile_status_cross_sweep_case(.tag(id),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             end
             109: begin
               run_profile_dbg2_lineage_sweep_case(.tag(id),
                                                   .iteration_count(128),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             end
             110: begin
               run_profile_sidecar_wallclock_case(.tag(id),
                                                  .opq_words(100),
                                                  .max_cycles(50000),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             111: begin
               run_profile_sidecar_wallclock_case(.tag(id),
                                                  .opq_words(10000),
                                                  .max_cycles(250000),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             112: begin
               run_profile_sidecar_overhead_case(.tag(id),
                                                 .opq_words(1024),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             113: begin
               run_profile_stress_halt_rate_case(.tag(id),
                                                 .job_count(100),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             114: begin
               run_profile_periodic_reset_stress_case(.tag(id),
                                                      .reset_count(10),
                                                      .jobs_per_reset(100),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             end
             115: begin
               run_profile_random_align_stress_case(.tag(id),
                                                    .job_count(100),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             end
             116: begin
               run_profile_random_opcode_stress_case(.tag(id),
                                                     .job_count(100),
-                                                    .sqe_id(sqe_id),
+                                                    .rqe_id(rqe_id),
                                                     .sequence_no(num));
             end
             117: begin
               run_profile_basic_bucket_frame_case(.tag(id),
                                                   .job_count(128),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             end
             118: begin
               run_profile_basic_bucket_frame_case(.tag(id),
                                                   .job_count(128),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             end
             119: begin
               run_profile_edge_bucket_frame_case(.tag(id),
                                                  .job_count(64),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             120: begin
               run_profile_edge_bucket_frame_case(.tag(id),
                                                  .job_count(64),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             121: begin
               run_profile_all_buckets_frame_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             122: begin
               run_profile_all_buckets_frame_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             end
             123: begin
               run_profile_random_long_soak_case(.tag(id),
                                                 .soak_cycles(10000000),
                                                 .job_count(100),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             124: begin
               run_profile_final_throughput_report_case(.tag(id),
                                                        .job_count(128),
-                                                       .sqe_id(sqe_id),
+                                                       .rqe_id(rqe_id),
                                                        .sequence_no(num));
             end
             125: begin
               run_profile_final_latency_report_case(.tag(id),
                                                     .job_count(512),
-                                                    .sqe_id(sqe_id),
+                                                    .rqe_id(rqe_id),
                                                     .sequence_no(num));
             end
             126: begin
               run_profile_final_halt_rate_report_case(.tag(id),
                                                       .sample_count(16),
-                                                      .sqe_id(sqe_id),
+                                                      .rqe_id(rqe_id),
                                                       .sequence_no(num));
             end
             127: begin
               run_profile_final_lineage_residual_report_case(.tag(id),
                                                              .iteration_count(256),
-                                                             .sqe_id(sqe_id),
+                                                             .rqe_id(rqe_id),
                                                              .sequence_no(num));
             end
             128: begin
               run_phase_b_coverage_closure_case(.tag({id, "_coverage"}),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
               apply_midrun_reset();
               run_profile_dual_build_comparison_case(.tag(id),
                                                      .job_count(128),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             end
             default: begin
-              run_dma_job(.tag(id), .sqe_id(sqe_id), .sequence_no(num));
+              run_dma_job(.tag(id), .rqe_id(rqe_id), .sequence_no(num));
             end
           endcase
           return;
@@ -11060,65 +11060,65 @@ package rdma_dma_engine_pkg;
             1: run_error_align_refusal_case(
                  .tag(id), .seg0_addr(64'h0000_0000_0010_0001),
                  .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0000),
-                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+                 .seg1_span(64'h0), .rqe_id(rqe_id), .sequence_no(num));
             2: run_error_align_refusal_case(
                  .tag(id), .seg0_addr(64'h0000_0000_0010_0800),
                  .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0000),
-                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+                 .seg1_span(64'h0), .rqe_id(rqe_id), .sequence_no(num));
             3: run_error_align_refusal_case(
                  .tag(id), .seg0_addr(64'h0000_0000_0010_0fff),
                  .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0000),
-                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+                 .seg1_span(64'h0), .rqe_id(rqe_id), .sequence_no(num));
             4: run_error_align_refusal_case(
                  .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
                  .seg0_span(64'h1001), .seg1_addr(64'h0000_0000_0020_0000),
-                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+                 .seg1_span(64'h0), .rqe_id(rqe_id), .sequence_no(num));
             5: run_error_align_refusal_case(
                  .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
                  .seg0_span(64'h1100), .seg1_addr(64'h0000_0000_0020_0000),
-                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+                 .seg1_span(64'h0), .rqe_id(rqe_id), .sequence_no(num));
             6: run_error_align_refusal_case(
                  .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
                  .seg0_span(64'h0), .seg1_addr(64'h0000_0000_0020_0000),
-                 .seg1_span(64'h0), .sqe_id(sqe_id), .sequence_no(num));
+                 .seg1_span(64'h0), .rqe_id(rqe_id), .sequence_no(num));
             7: run_error_align_refusal_case(
                  .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
                  .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0001),
-                 .seg1_span(64'h1000), .sqe_id(sqe_id), .sequence_no(num));
+                 .seg1_span(64'h1000), .rqe_id(rqe_id), .sequence_no(num));
             8: run_error_align_refusal_case(
                  .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
                  .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0000),
-                 .seg1_span(64'h1001), .sqe_id(sqe_id), .sequence_no(num));
+                 .seg1_span(64'h1001), .rqe_id(rqe_id), .sequence_no(num));
             9: run_error_align_refusal_case(
                  .tag(id), .seg0_addr(64'h0000_0000_0010_0001),
                  .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0001),
-                 .seg1_span(64'h1000), .sqe_id(sqe_id), .sequence_no(num));
+                 .seg1_span(64'h1000), .rqe_id(rqe_id), .sequence_no(num));
             10: run_error_align_refusal_case(
                   .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
                   .seg0_span(64'h1000), .seg1_addr(64'h0000_0000_0020_0001),
-                  .seg1_span(64'h1000), .sqe_id(sqe_id), .sequence_no(num));
+                  .seg1_span(64'h1000), .rqe_id(rqe_id), .sequence_no(num));
             11: run_error_align_refusal_case(
                   .tag(id), .seg0_addr(64'h0000_0000_0010_0000),
                   .seg0_span(64'h0), .seg1_addr(64'h0000_0000_0020_0000),
-                  .seg1_span(64'h1000), .sqe_id(sqe_id), .sequence_no(num));
+                  .seg1_span(64'h1000), .rqe_id(rqe_id), .sequence_no(num));
             12: run_error_single_segment_legal_case(.tag(id),
-                                                    .sqe_id(sqe_id),
+                                                    .rqe_id(rqe_id),
                                                     .sequence_no(num));
             13: run_error_align_after_valid_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             14: run_error_consecutive_align_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             15: run_align_error_then_clean_case(.tag(id),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             16: run_error_idle_reset_case(id);
             default: run_error_align_refusal_case(
                        .tag(id), .seg0_addr(64'h0000_0000_0010_0001),
                        .seg0_span(64'h1000),
                        .seg1_addr(64'h0000_0000_0020_0000),
-                       .seg1_span(64'h0), .sqe_id(sqe_id),
+                       .seg1_span(64'h0), .rqe_id(rqe_id),
                        .sequence_no(num));
           endcase
           return;
@@ -11126,63 +11126,63 @@ package rdma_dma_engine_pkg;
           case (num)
             17: run_error_reset_writer_state_case(.tag(id),
                                                   .target_state(4'd1),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             18: run_error_reset_writer_state_case(.tag(id),
                                                   .target_state(4'd2),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num),
                                                   .require_awvalid(1'b1));
             19: run_error_reset_writer_state_case(.tag(id),
                                                   .target_state(4'd3),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             20: run_error_reset_writer_state_case(.tag(id),
                                                   .target_state(4'd4),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             21: run_error_reset_writer_state_case(.tag(id),
                                                   .target_state(4'd5),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             22: run_error_reset_on_job_req_case(id);
             23: run_error_reset_on_job_done_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             24: run_error_reset_pulse_train_case(id);
             25: run_error_long_reset_case(id);
             26: run_error_reset_then_job_case(.tag(id),
-                                              .sqe_id(sqe_id),
+                                              .rqe_id(rqe_id),
                                               .sequence_no(num));
             27: run_error_reset_clears_counters_case(.tag(id),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             28: run_error_reset_writer_state_case(.tag(id),
                                                   .target_state(4'd3),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             29: run_error_bresp_case(.tag(id),
                                      .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
                                      .error_index(-1),
                                      .opq_words(64),
-                                     .sqe_id(sqe_id),
+                                     .rqe_id(rqe_id),
                                      .sequence_no(num));
             30: run_error_bresp_case(.tag(id), .bresp(2'b11),
                                      .error_index(-1),
                                      .opq_words(64),
-                                     .sqe_id(sqe_id),
+                                     .rqe_id(rqe_id),
                                      .sequence_no(num));
             31: run_error_bresp_case(.tag(id),
                                      .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
                                      .error_index(0),
                                      .opq_words(256),
-                                     .sqe_id(sqe_id),
+                                     .rqe_id(rqe_id),
                                      .sequence_no(num));
             32: run_error_bresp_case(.tag(id),
                                      .bresp(axi4_write_pkg::AXI_RESP_SLVERR),
                                      .error_index(1),
                                      .opq_words(256),
-                                     .sqe_id(sqe_id),
+                                     .rqe_id(rqe_id),
                                      .sequence_no(num));
             default: run_error_idle_reset_case(id);
           endcase
@@ -11194,53 +11194,53 @@ package rdma_dma_engine_pkg;
                                      .error_index(-1),
                                      .opq_words(1280),
                                      .seg0_span(64'h0000_0000_0000_2000),
-                                     .sqe_id(sqe_id),
+                                     .rqe_id(rqe_id),
                                      .sequence_no(num));
             34: run_error_bresp_case(.tag(id), .bresp(2'b11),
                                      .error_index(0),
                                      .opq_words(256),
-                                     .sqe_id(sqe_id),
+                                     .rqe_id(rqe_id),
                                      .sequence_no(num));
             35: run_job_req_opq_idle_case(.tag(id),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             36: run_error_burst_size_five_case(.tag(id),
-                                               .sqe_id(sqe_id),
+                                               .rqe_id(rqe_id),
                                                .sequence_no(num));
             37: run_fifo_single_read_burst_case(.tag(id),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             38: run_error_tlast_without_tvalid_case(.tag(id),
-                                                    .sqe_id(sqe_id),
+                                                    .rqe_id(rqe_id),
                                                     .sequence_no(num));
             39: run_error_sop_mid_event_case(.tag(id),
-                                             .sqe_id(sqe_id),
+                                             .rqe_id(rqe_id),
                                              .sequence_no(num));
             40: run_dma_job(.tag(id), .opq_words(64),
-                            .send_eoe(1'b1), .sqe_id(sqe_id),
+                            .send_eoe(1'b1), .rqe_id(rqe_id),
                             .sequence_no(num), .idle_after_each(0),
                             .timeout_cycles(300000));
             41: run_job_req_opq_idle_case(.tag(id),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             42: run_error_ignored_xdata_case(.tag(id),
-                                             .sqe_id(sqe_id),
+                                             .rqe_id(rqe_id),
                                              .sequence_no(num));
             43: run_error_single_beat_event_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             44: run_error_overlap_job_req_case(.tag(id),
-                                               .sqe_id(sqe_id),
+                                               .rqe_id(rqe_id),
                                                .sequence_no(num));
             45: run_error_reset_on_job_req_case(id);
             46: run_error_invalid_opcode_case(.tag(id),
-                                              .sqe_id(sqe_id),
+                                              .rqe_id(rqe_id),
                                               .sequence_no(num));
             47: run_error_ten_align_then_valid_case(.tag(id),
-                                                    .sqe_id(sqe_id),
+                                                    .rqe_id(rqe_id),
                                                     .sequence_no(num));
             48: run_error_large_span_case(.tag(id),
-                                          .sqe_id(sqe_id),
+                                          .rqe_id(rqe_id),
                                           .sequence_no(num));
             default: run_error_idle_reset_case(id);
           endcase
@@ -11248,52 +11248,52 @@ package rdma_dma_engine_pkg;
         end else if (num <= 64) begin
           case (num)
             49: run_error_bresp_recovery_case(.tag(id),
-                                               .sqe_id(sqe_id),
+                                               .rqe_id(rqe_id),
                                                .sequence_no(num));
             50: run_align_error_then_clean_case(.tag(id),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             51: run_error_reset_mid_job_recovery_case(.tag(id),
-                                                      .sqe_id(sqe_id),
+                                                      .rqe_id(rqe_id),
                                                       .sequence_no(num));
             52: run_fifo_recovery_after_halt_case(.tag(id),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             53: run_error_dbg1_bresp_observability_case(.tag(id),
-                                                        .sqe_id(sqe_id),
+                                                        .rqe_id(rqe_id),
                                                         .sequence_no(num));
             54: run_error_reset_writer_state_case(.tag(id),
                                                   .target_state(4'd3),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             55: run_writer_align_err_transition_case(.tag(id),
-                                                     .sqe_id(sqe_id));
+                                                     .rqe_id(rqe_id));
             56: run_halt_count_job(.tag(id), .dropped_words(8),
-                                   .sqe_id(sqe_id),
+                                   .rqe_id(rqe_id),
                                    .sequence_no(num));
             57: run_dbg2_halt_residual_case(.tag(id),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             58: run_error_dbg2_reordered_lineage_case(.tag(id),
-                                                      .sqe_id(sqe_id),
+                                                      .rqe_id(rqe_id),
                                                       .sequence_no(num));
             59: run_error_dbg2_duplicate_lineage_case(.tag(id),
-                                                      .sqe_id(sqe_id),
+                                                      .rqe_id(rqe_id),
                                                       .sequence_no(num));
             60: run_error_dbg2_reset_residual_case(.tag(id),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             61: run_dbg2_halt_residual_case(.tag(id),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             62: run_error_clear_idle_case(id);
             63: run_error_clear_during_writer_state_case(.tag(id),
                                                          .target_state(4'd3),
-                                                         .sqe_id(sqe_id),
+                                                         .rqe_id(rqe_id),
                                                          .sequence_no(num));
             64: run_error_clear_during_writer_state_case(.tag(id),
                                                          .target_state(4'd4),
-                                                         .sqe_id(sqe_id),
+                                                         .rqe_id(rqe_id),
                                                          .sequence_no(num));
             default: run_error_idle_reset_case(id);
           endcase
@@ -11301,62 +11301,62 @@ package rdma_dma_engine_pkg;
         end else if (num <= 80) begin
           case (num)
             65: run_error_clear_back_to_back_case(.tag(id),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             66: run_error_clear_at_job_done_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             67: run_error_clear_during_halt_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             68: run_error_bresp_fault_loop_case(.tag(id),
                                                 .job_count(100),
                                                 .error_period(100),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             69: run_error_periodic_reset_loop_case(.tag(id),
                                                    .job_count(20),
                                                    .reset_period(5),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             70: run_profile_random_align_stress_case(.tag(id),
                                                      .job_count(100),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             71: run_error_combined_fault_loop_case(.tag(id),
                                                    .job_count(100),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             72: run_error_reset_writer_state_case(.tag(id),
                                                   .target_state(4'd2),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num),
                                                   .require_awvalid(1'b1));
             73: run_error_reset_writer_state_case(.tag(id),
                                                   .target_state(4'd3),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             74: run_error_reset_writer_state_case(.tag(id),
                                                   .target_state(4'd4),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             75: run_error_bresp_ignored_after_reset_case(.tag(id),
-                                                        .sqe_id(sqe_id),
+                                                        .rqe_id(rqe_id),
                                                         .sequence_no(num));
             76: run_error_awready_delay_case(.tag(id),
-                                             .sqe_id(sqe_id),
+                                             .rqe_id(rqe_id),
                                              .sequence_no(num));
             77: run_error_wready_delay_case(.tag(id),
-                                             .sqe_id(sqe_id),
+                                             .rqe_id(rqe_id),
                                              .sequence_no(num));
             78: run_error_spurious_b_idle_case(.tag(id),
-                                               .sqe_id(sqe_id),
+                                               .rqe_id(rqe_id),
                                                .sequence_no(num));
             79: run_error_spurious_b_during_w_case(.tag(id),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             80: run_error_bid_mismatch_case(.tag(id),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             default: run_error_idle_reset_case(id);
           endcase
@@ -11364,44 +11364,44 @@ package rdma_dma_engine_pkg;
         end else if (num <= 96) begin
           case (num)
             81: run_error_duplicate_bvalid_case(.tag(id),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             82: run_error_fifo_level_inconsistency_case(id);
             83: run_error_fifo_full_guard_case(id);
             84: run_error_fifo_empty_guard_case(id);
             85: run_error_fifo_almost_full_disagreement_case(id);
             86: run_error_job_req_held_high_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             87: run_error_job_req_mutating_inputs_case(.tag(id),
-                                                       .sqe_id(sqe_id),
+                                                       .rqe_id(rqe_id),
                                                        .sequence_no(num));
             88: run_error_job_done_req_overlap_case(.tag(id),
-                                                    .sqe_id(sqe_id),
+                                                    .rqe_id(rqe_id),
                                                     .sequence_no(num));
             89: run_error_align_then_halt_case(.tag(id),
-                                               .sqe_id(sqe_id),
+                                               .rqe_id(rqe_id),
                                                .sequence_no(num));
             90: run_error_align_with_bresp_case(.tag(id),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             91: run_error_align_reset_clean_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             92: run_error_clear_during_aw_handshake_case(.tag(id),
-                                                        .sqe_id(sqe_id),
+                                                        .rqe_id(rqe_id),
                                                         .sequence_no(num));
             93: run_error_clear_input_increment_case(.tag(id),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             94: run_error_clear_halt_race_case(.tag(id),
-                                               .sqe_id(sqe_id),
+                                               .rqe_id(rqe_id),
                                                .sequence_no(num));
             95: run_error_clear_at_job_done_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             96: run_error_opq_stuck_wr_w_case(.tag(id),
-                                              .sqe_id(sqe_id),
+                                              .rqe_id(rqe_id),
                                               .sequence_no(num));
             default: run_error_idle_reset_case(id);
           endcase
@@ -11409,50 +11409,50 @@ package rdma_dma_engine_pkg;
         end else if (num <= 112) begin
           case (num)
             97: run_error_wready_stuck_case(.tag(id),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             98: run_error_bvalid_stuck_case(.tag(id),
-                                            .sqe_id(sqe_id),
+                                            .rqe_id(rqe_id),
                                             .sequence_no(num));
             99: run_error_long_idle_no_job_case(id);
             100: run_error_bresp_reset_align_valid_chain(.tag(id),
-                                                         .sqe_id(sqe_id),
+                                                         .rqe_id(rqe_id),
                                                          .sequence_no(num));
             101: run_error_bresp_halt_eoe_case(.tag(id),
-                                               .sqe_id(sqe_id),
+                                               .rqe_id(rqe_id),
                                                .sequence_no(num));
             102: run_error_triple_reset_valid_case(.tag(id),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             103: run_error_halt_reset_reentry_case(.tag(id),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             104: run_dbg2_halt_residual_case(.tag(id),
-                                             .sqe_id(sqe_id),
+                                             .rqe_id(rqe_id),
                                              .sequence_no(num));
             105: run_error_dbg2_lineage_reset_residual_case(.tag(id),
-                                                            .sqe_id(sqe_id),
+                                                            .rqe_id(rqe_id),
                                                             .sequence_no(num));
             106: run_error_dbg2_bresp_lineage_case(.tag(id),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             107: run_error_dbg2_align_no_traffic_case(.tag(id),
-                                                      .sqe_id(sqe_id),
+                                                      .rqe_id(rqe_id),
                                                       .sequence_no(num));
             108: run_error_random_fault_profile_case(.tag(id),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             109: run_error_random_align_valid_mix_case(.tag(id),
-                                                       .sqe_id(sqe_id),
+                                                       .rqe_id(rqe_id),
                                                        .sequence_no(num));
             110: run_error_random_reset_every_n_case(.tag(id),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             111: run_error_random_bresp_rate_case(.tag(id),
-                                                  .sqe_id(sqe_id),
+                                                  .rqe_id(rqe_id),
                                                   .sequence_no(num));
             112: run_error_random_combined_fault_rate_case(.tag(id),
-                                                           .sqe_id(sqe_id),
+                                                           .rqe_id(rqe_id),
                                                            .sequence_no(num));
             default: run_error_idle_reset_case(id);
           endcase
@@ -11460,57 +11460,57 @@ package rdma_dma_engine_pkg;
         end else if (num <= 128) begin
           case (num)
             113: run_error_reset_every_50_case(.tag(id),
-                                               .sqe_id(sqe_id),
+                                               .rqe_id(rqe_id),
                                                .sequence_no(num));
             114: run_error_reset_wait_bvalid_no_host_case(.tag(id),
-                                                          .sqe_id(sqe_id),
+                                                          .rqe_id(rqe_id),
                                                           .sequence_no(num));
             115: run_error_reset_high_fifo_fill_case(.tag(id),
-                                                     .sqe_id(sqe_id),
+                                                     .rqe_id(rqe_id),
                                                      .sequence_no(num));
             116: run_error_reset_clear_same_cycle_case(.tag(id),
-                                                       .sqe_id(sqe_id),
+                                                       .rqe_id(rqe_id),
                                                        .sequence_no(num));
             117: run_error_out_of_order_b_edge_case(.tag(id),
-                                                    .sqe_id(sqe_id),
+                                                    .rqe_id(rqe_id),
                                                     .sequence_no(num));
             118: run_error_duplicate_bvalid_case(.tag(id),
-                                                 .sqe_id(sqe_id),
+                                                 .rqe_id(rqe_id),
                                                  .sequence_no(num));
             119: run_error_report_align_state_case(.tag(id),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             120: run_error_status_align_coverage_case(.tag(id),
-                                                      .sqe_id(sqe_id),
+                                                      .rqe_id(rqe_id),
                                                       .sequence_no(num));
             121: run_error_bresp_branch_coverage_case(.tag(id),
-                                                      .sqe_id(sqe_id),
+                                                      .rqe_id(rqe_id),
                                                       .sequence_no(num));
             122: run_error_reset_all_writer_states_case(.tag(id),
-                                                        .sqe_id(sqe_id),
+                                                        .rqe_id(rqe_id),
                                                         .sequence_no(num));
             123: run_error_sustained_bresp_one_percent_case(.tag(id),
-                                                            .sqe_id(sqe_id),
+                                                            .rqe_id(rqe_id),
                                                             .sequence_no(num));
             124: run_error_sustained_reset_one_percent_case(.tag(id),
-                                                            .sqe_id(sqe_id),
+                                                            .rqe_id(rqe_id),
                                                             .sequence_no(num));
             125: run_error_sustained_align_one_percent_case(.tag(id),
-                                                            .sqe_id(sqe_id),
+                                                            .rqe_id(rqe_id),
                                                             .sequence_no(num));
             126: run_error_final_composite_case(.tag(id),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             127: run_error_final_dbg1_lineage_case(.tag(id),
-                                                   .sqe_id(sqe_id),
+                                                   .rqe_id(rqe_id),
                                                    .sequence_no(num));
             128: begin
               run_phase_b_coverage_closure_case(.tag({id, "_coverage"}),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
               apply_midrun_reset();
               run_error_final_dbg2_lineage_case(.tag(id),
-                                                .sqe_id(sqe_id),
+                                                .rqe_id(rqe_id),
                                                 .sequence_no(num));
             end
             default: run_error_idle_reset_case(id);
@@ -11537,7 +11537,7 @@ package rdma_dma_engine_pkg;
                   .wready_lag(w_lag),
                   .bvalid_lag(b_lag),
                   .bresp(bresp),
-                  .sqe_id(sqe_id),
+                  .rqe_id(rqe_id),
                   .idle_after_each((prefix == "P") ? (num % 3) : idle_after_each),
                   .timeout_cycles(300000));
     endtask

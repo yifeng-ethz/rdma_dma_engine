@@ -38,7 +38,7 @@ class job_monitor extends uvm_monitor;
         item.seg0_bytes_written = vif.job_seg0_bytes_written;
         item.seg1_bytes_written = vif.job_seg1_bytes_written;
         item.status = vif.job_status;
-        item.sqe_id_echo = vif.job_sqe_id_echo;
+        item.rqe_id_echo = vif.job_rqe_id_echo;
         item.event_count = vif.job_event_count;
         item.first_event_ts = vif.job_first_event_ts;
         item.last_event_ts = vif.job_last_event_ts;

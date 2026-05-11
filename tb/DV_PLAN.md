@@ -36,9 +36,9 @@ from `rdma_run_manager`. On completion it reports rich CQE-feeding fields
 - Burst sizing: `MAX_BURST_BEATS = 16`, `m_axi_awsize = $clog2(DMA_DATA_W/8) = 5`
   (256 b / 8 = 32 B), `m_axi_awburst = 2'b01` (INCR), no 4 KB crossing
 - Job interface from `run_manager`: `job_req` / `job_done` handshake +
-  `seg{0,1}_addr`, `seg{0,1}_span`, `sqe_id`, `opcode` in;
+  `seg{0,1}_addr`, `seg{0,1}_span`, `rqe_id`, `opcode` in;
   `bytes_written_total`, `seg0_bytes_written`, `seg1_bytes_written`,
-  `status[15:0]`, `sqe_id_echo`, `event_count`, `first_event_ts`,
+  `status[15:0]`, `rqe_id_echo`, `event_count`, `first_event_ts`,
   `last_event_ts` out
 - Status bits per ARCH §5: `EOE`, `FULL`, `HALT`, `SEG_BOUNDARY_HIT`,
   `SEG0_ONLY`, `ALIGN_ERR`
@@ -53,7 +53,7 @@ from `rdma_run_manager`. On completion it reports rich CQE-feeding fields
 
 ### Out-of-scope (covered elsewhere)
 
-- SQ ring fetch / CQ ring push: handled by `rdma_sq_fetcher` and
+- RQ ring fetch / CQ ring push: handled by `rdma_rq_fetcher` and
   `rdma_cq_pusher`, NOT here. Their job-request and CQE-construction
   contracts are validated in their own DV plans.
 - Host-visible CSR aperture: this IP has **no** host CSR. Counters are
@@ -73,8 +73,8 @@ from `rdma_run_manager`. On completion it reports rich CQE-feeding fields
 | Interface | Type | Width | Clock | Direction | Notes |
 |-----------|------|-------|-------|-----------|-------|
 | `s_axis_opq` | AXI4-Stream sink | 36 b `tdata` | `clk` | in | `tdata = {datak[3:0], data[31:0]}`, `tlast = OPQ EOE`, `tuser[0] = SOP`, `tready` tied 1 in Phase 1 |
-| `job_*` (req side) | conduit | 64+64+64+64+16+16 b | `clk` | in | `job_req`, `job_seg{0,1}_addr`, `job_seg{0,1}_span`, `job_sqe_id`, `job_opcode` |
-| `job_*` (done side) | conduit | 64+32+32+16+16+32+64+64 b | `clk` | out | `job_done`, `job_bytes_written_total`, `job_seg{0,1}_bytes_written`, `job_status`, `job_sqe_id_echo`, `job_event_count`, `job_first_event_ts`, `job_last_event_ts` |
+| `job_*` (req side) | conduit | 64+64+64+64+16+16 b | `clk` | in | `job_req`, `job_seg{0,1}_addr`, `job_seg{0,1}_span`, `job_rqe_id`, `job_opcode` |
+| `job_*` (done side) | conduit | 64+32+32+16+16+32+64+64 b | `clk` | out | `job_done`, `job_bytes_written_total`, `job_seg{0,1}_bytes_written`, `job_status`, `job_rqe_id_echo`, `job_event_count`, `job_first_event_ts`, `job_last_event_ts` |
 | `m_axi_*` (write) | AXI4 master | 64 b addr / 256 b data | `clk` | both | AW + W + B channels only, no read |
 | `cnt_*` | sideband | 32 b each | `clk` | out | `cnt_input_w`, `cnt_bytes_written`, `cnt_halt`, `cnt_eoe_observed` |
 | `dbg1_*` (DEBUG_LEVEL≥1) | observation | parameterized | `clk` | out | FIFO fill level, AW/W/B in-flight counts, halt counters, packer slot index — tied off in synthesizable build, exposed for sim/SignalTap |
@@ -167,7 +167,7 @@ into one or more `D` (directed) or `R` (constrained-random) cases.
 
 ### 3.8 Multi-job back-to-back (BASIC + PROF)
 
-- Two consecutive jobs completing in order, distinct `sqe_id`s echo back
+- Two consecutive jobs completing in order, distinct `rqe_id`s echo back
   in order
 - Job stream of 100 jobs → conservation across all jobs:
   `Σ cnt_input_w * 4 == Σ bytes_written + Σ halt_bytes`
@@ -247,7 +247,7 @@ Functional coverage groups (defined in `DV_HARNESS.md` and bucket files;
 established empty in `DV_COV.md` at bring-up, populated as tests run):
 
 - `cg_job` — `seg0_span` bin, `seg1_span` bin, `seg1_used` bool, `opcode`,
-  `sqe_id` bin, `status` bit set
+  `rqe_id` bin, `status` bit set
 - `cg_axi_burst` — `awlen` (0..15), `awaddr[11:0]` aligned-bin, # of beats
   per burst, `bresp`, time-to-first-`bready`-after-`bvalid`
 - `cg_packer` — slot index at flush (1..8), `last_in_event`, `bytes_in_word`,

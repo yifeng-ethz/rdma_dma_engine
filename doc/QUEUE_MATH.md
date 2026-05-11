@@ -369,7 +369,7 @@ payload signals on:
 - `s_axis_opq_tready`
 - `cnt_input_w`, `cnt_bytes_written`, `cnt_halt`, `cnt_eoe_observed`
 - `job_done`, `job_status`, `job_bytes_written_*`, `job_event_count`,
-  `job_first_event_ts`, `job_last_event_ts`, `job_sqe_id_echo`
+  `job_first_event_ts`, `job_last_event_ts`, `job_rqe_id_echo`
 
 If they differ, the sidecar has leaked into a payload-affecting cone
 and the inertness proof fails. This is enforced by the cross-build

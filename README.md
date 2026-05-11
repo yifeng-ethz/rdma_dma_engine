@@ -1,6 +1,6 @@
 # rdma_dma_engine - OPQ to host DRAM DMA writer
 
-OPQ-egress to host DRAM DMA writer for the Mu3e SWB. Packs 32-bit hits into 256-bit AXI4 bursts and drains under SQE-driven host control.
+OPQ-egress to host DRAM DMA writer for the Mu3e SWB. Packs 32-bit hits into 256-bit AXI4 bursts and drains under RQE-driven host control.
 
 ## 2. Architectural map
 
@@ -97,14 +97,14 @@ Standard AXI4 channel fields are not restated. This master uses only AW, W, and 
 | `job_seg0_span` | 64 | sink control | Segment 0 span in bytes; must be nonzero and a 4 KB multiple. |
 | `job_seg1_addr` | 64 | sink control | Segment 1 host address; must be 4 KB-aligned if `job_seg1_span != 0`. |
 | `job_seg1_span` | 64 | sink control | Segment 1 span in bytes; zero disables the second segment. |
-| `job_sqe_id` | 16 | sink control | SQE identifier echoed on completion. |
+| `job_rqe_id` | 16 | sink control | RQE identifier echoed on completion. |
 | `job_opcode` | 16 | sink control | Latched for job provenance; drain behavior is owned by the run-manager contract. |
 | `job_done` | 1 | source status | Pulses when the writer reports completion or an alignment refusal. |
 | `job_bytes_written_total` | 64 | source status | Useful bytes written across both segments. |
 | `job_seg0_bytes_written` | 32 | source status | Useful bytes written into segment 0. |
 | `job_seg1_bytes_written` | 32 | source status | Useful bytes written into segment 1. |
 | `job_status` | 16 | source status | Status bit map below. |
-| `job_sqe_id_echo` | 16 | source status | Echo of `job_sqe_id`. |
+| `job_rqe_id_echo` | 16 | source status | Echo of `job_rqe_id`. |
 | `job_event_count` | 32 | source status | Number of OPQ EOE boundaries observed during this drain. |
 | `job_first_event_ts` | 64 | source status | Packer timestamp at first EOE. |
 | `job_last_event_ts` | 64 | source status | Packer timestamp at last EOE. |
@@ -132,7 +132,7 @@ Standard AXI4 channel fields are not restated. This master uses only AW, W, and 
 | `dbg1_*` | mixed | source observation | FIFO level, packer slot, AW/W/B state, and writer FSM taps when `DEBUG_LEVEL >= 1`; zero otherwise. |
 | `dbg2_*` | mixed | sim-only sidecar | Per-hit lineage sideband when `DEBUG_LEVEL >= 2`; zero/pruned for synthesizable builds. |
 
-Supercore-only contracts are not external interfaces of this IP. The readyless 9-bit one-hot run-control AVST word is handled by `run-control_mgmt` and the FEB/SWB integration, while 64-byte SQE/CQE payload layouts are owned by `rdma_subsystem/ARCHITECTURE_PLAN.md` and decoded/assembled by `rdma_run_manager`.
+Supercore-only contracts are not external interfaces of this IP. The readyless 9-bit one-hot run-control AVST word is handled by `run-control_mgmt` and the FEB/SWB integration, while 64-byte RQE/CQE payload layouts are owned by `rdma_subsystem/ARCHITECTURE_PLAN.md` and decoded/assembled by `rdma_run_manager`.
 
 ## 4. How to start
 
@@ -221,9 +221,9 @@ make -C tb/uvm regress
 | Reference | Path |
 |---|---|
 | Parent supercore README | `../rdma_subsystem/README.md` |
-| Parent architecture, SQE/CQE layout, BAR1 CSR ownership | `../rdma_subsystem/ARCHITECTURE_PLAN.md` |
+| Parent architecture, RQE/CQE layout, BAR1 CSR ownership | `../rdma_subsystem/ARCHITECTURE_PLAN.md` |
 | Supercore phase dashboard | `../rdma_subsystem/PHASE_STATUS.md` |
-| SQE descriptor puller sibling | `../rdma_sq_fetcher/` |
+| RQE descriptor puller sibling | `../rdma_rq_fetcher/` |
 | Completion writer sibling | `../rdma_cq_pusher/` |
 | Coordinator and BAR1 CSR sibling | `../rdma_run_manager/` |
 | FEB SciFi documentation style reference | `/home/yifeng/packages/online_dpv2/online/fe_board/fe_scifi/README.md` |

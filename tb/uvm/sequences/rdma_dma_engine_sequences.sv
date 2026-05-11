@@ -66,7 +66,7 @@ class job_single_segment_sequence extends uvm_sequence #(job_pkg::job_item);
   bit [63:0] seg0_span;
   bit [63:0] seg1_addr;
   bit [63:0] seg1_span;
-  bit [15:0] sqe_id;
+  bit [15:0] rqe_id;
   bit [15:0] opcode;
 
   function new(string name = "job_single_segment_sequence");
@@ -75,7 +75,7 @@ class job_single_segment_sequence extends uvm_sequence #(job_pkg::job_item);
     seg0_span = 64'h0000_0000_0000_1000;
     seg1_addr = 64'h0000_0000_0000_0000;
     seg1_span = 64'h0000_0000_0000_0000;
-    sqe_id = 16'h00b2;
+    rqe_id = 16'h00b2;
     opcode = 16'h0001;
   endfunction
 
@@ -86,7 +86,7 @@ class job_single_segment_sequence extends uvm_sequence #(job_pkg::job_item);
     item.seg0_span = seg0_span;
     item.seg1_addr = seg1_addr;
     item.seg1_span = seg1_span;
-    item.sqe_id = sqe_id;
+    item.rqe_id = rqe_id;
     item.opcode = opcode;
     start_item(item);
     finish_item(item);

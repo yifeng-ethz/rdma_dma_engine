@@ -18,7 +18,7 @@ class test_b002_single_job_hit_only_eoe extends rdma_dma_engine_base_test;
 
     job_seq = job_single_segment_sequence::type_id::create("job_seq");
     opq_seq = rdma_dma_basic_smoke_sequence::type_id::create("opq_seq");
-    job_seq.sqe_id = 16'hb002;
+    job_seq.rqe_id = 16'hb002;
     job_seq.start(env.job_agent_h.sequencer);
     wait_cycles(2);
     opq_seq.start(env.opq_agent.sequencer);
@@ -30,8 +30,8 @@ class test_b002_single_job_hit_only_eoe extends rdma_dma_engine_base_test;
       `uvm_error("B002", "EOE status bit was not set")
     if (!vif.job_status[RDMA_DMA_ST_SEG0_ONLY])
       `uvm_error("B002", "SEG0_ONLY status bit was not set")
-    if (vif.job_sqe_id_echo !== 16'hb002)
-      `uvm_error("B002", $sformatf("sqe_id_echo=0x%04h expected=0xb002", vif.job_sqe_id_echo))
+    if (vif.job_rqe_id_echo !== 16'hb002)
+      `uvm_error("B002", $sformatf("rqe_id_echo=0x%04h expected=0xb002", vif.job_rqe_id_echo))
   endtask
 endclass
 

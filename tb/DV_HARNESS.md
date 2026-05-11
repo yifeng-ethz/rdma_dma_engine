@@ -226,7 +226,7 @@ the sidecar is **inert** when DEBUG=1 (driven to `'0`).
 
 ### 3.2 `job_agent` (run_manager-side stimulus + done consumer)
 
-**Role:** drives `job_req` plus all `job_seg{0,1}_*`, `job_sqe_id`,
+**Role:** drives `job_req` plus all `job_seg{0,1}_*`, `job_rqe_id`,
 `job_opcode` inputs. Monitors `job_done` and the report-back fields,
 forwards each completion as a UVM transaction to the scoreboard. Holds
 `job_req` for one cycle (per the simple req/done handshake; the engine

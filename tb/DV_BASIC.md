@@ -66,7 +66,7 @@ dbg2 sidecar field on the DUT as defined in `../RTL_PLAN.md` and
 
 | ID | Method | Scenario | Iter | Stimulus | Pass Criteria | Function Reference |
 |----|--------|----------|------|----------|---------------|--------------------|
-| B013 | D | Smoke single-segment 4 KB job, 8 OPQ words, EOE arrives | 1 | seg0_addr=0x10_0000, seg0_span=0x1000, seg1_span=0; opcode=DRAIN_UNTIL_EOE; drive 8 OPQ 32 b beats with sop on first, eop on last. | job_done after one AW/W/B cycle; status[EOE]=1; status[SEG0_ONLY]=1; bytes_written_total==32; sqe_id_echo matches. | TBD |
+| B013 | D | Smoke single-segment 4 KB job, 8 OPQ words, EOE arrives | 1 | seg0_addr=0x10_0000, seg0_span=0x1000, seg1_span=0; opcode=DRAIN_UNTIL_EOE; drive 8 OPQ 32 b beats with sop on first, eop on last. | job_done after one AW/W/B cycle; status[EOE]=1; status[SEG0_ONLY]=1; bytes_written_total==32; rqe_id_echo matches. | TBD |
 | B014 | D | Smoke single-segment 4 KB job, 16 OPQ words | 1 | As B013 with 16 OPQ words. | Two W beats; bytes_written_total==64. | TBD |
 | B015 | D | Smoke single-segment 4 KB, exactly 1 burst (16 beats) | 1 | 16 OPQ words/beat = 128 OPQ words; 16 W beats == 1 burst at MAX_BURST_BEATS=16. | One AW with awlen==15; one B; bytes_written_total==512. | TBD |
 | B016 | D | Smoke single-segment 4 KB, exactly 2 bursts (32 beats) | 1 | 32 W beats = 2 bursts of 16. | Two AWs; two Bs; bytes_written_total==1024. | TBD |
@@ -77,9 +77,9 @@ dbg2 sidecar field on the DUT as defined in `../RTL_PLAN.md` and
 | B021 | D | Smoke single-segment 4 KB, EOE on slot 8 (full beat) | 1 | 8 words then EOE. | bytes_in_word==32; bytes_written_total==32; no padding. | TBD |
 | B022 | D | Smoke single-segment 4 KB, EOE alone (no data) | 1 | drive 0 data + tlast pulse. | Per spec: status[EOE]=1 with bytes_written_total==0; engine emits zero W beats. | TBD |
 | B023 | D | Smoke single-segment 16 KB, multiple events | 1 | drive 4 events of 8 words each separated by tlast. | Four EOE boundaries captured; cnt_eoe_observed==4 at job_done. | TBD |
-| B024 | D | Smoke single-segment with sqe_id=0xBEEF, opcode=0x0001 | 1 | Set sqe_id=0xBEEF. | sqe_id_echo==0xBEEF on completion. | TBD |
-| B025 | D | Smoke single-segment with sqe_id=0x0000 | 1 | sqe_id=0x0000. | sqe_id_echo==0. | TBD |
-| B026 | D | Smoke single-segment with sqe_id=0xFFFF | 1 | sqe_id=0xFFFF. | sqe_id_echo==0xFFFF. | TBD |
+| B024 | D | Smoke single-segment with rqe_id=0xBEEF, opcode=0x0001 | 1 | Set rqe_id=0xBEEF. | rqe_id_echo==0xBEEF on completion. | TBD |
+| B025 | D | Smoke single-segment with rqe_id=0x0000 | 1 | rqe_id=0x0000. | rqe_id_echo==0. | TBD |
+| B026 | D | Smoke single-segment with rqe_id=0xFFFF | 1 | rqe_id=0xFFFF. | rqe_id_echo==0xFFFF. | TBD |
 | B027 | D | Smoke single-segment with seg0_addr=0 | 1 | seg0_addr=0x0. | Engine accepts; first AW awaddr==0. | TBD |
 | B028 | D | Smoke single-segment with high seg0_addr | 1 | seg0_addr=0xFFFF_F000 (4 KB-aligned just below 4 GiB). | Engine accepts; first AW awaddr==0xFFFF_F000. | TBD |
 
@@ -97,7 +97,7 @@ dbg2 sidecar field on the DUT as defined in `../RTL_PLAN.md` and
 | B034 | D | Two-segment seg1_addr at distant address | 1 | seg0_addr=0x10_0000, seg1_addr=0xA0_0000; small spans. | First AW after boundary uses seg1_addr. | TBD |
 | B035 | D | Two-segment minimum spans (4 KB each) | 1 | seg0_span=0x1000, seg1_span=0x1000. | Engine accepts; correctly transitions. | TBD |
 | B036 | D | Two-segment large spans (1 MiB each) | 1 | seg0_span=0x10_0000, seg1_span=0x10_0000. | Engine completes; FILL on exhaustion. | TBD |
-| B037 | D | Two-segment with non-zero sqe_id and opcode | 1 | sqe_id=0xCAFE, opcode=0x0001. | sqe_id_echo==0xCAFE. | TBD |
+| B037 | D | Two-segment with non-zero rqe_id and opcode | 1 | rqe_id=0xCAFE, opcode=0x0001. | rqe_id_echo==0xCAFE. | TBD |
 | B038 | D | Two-segment with seg0=4KB filled exactly mid-burst | 1 | seg0_span=0x1000 = 32 W-beats = 2 full bursts of 16; check seg0->seg1 at burst boundary. | seg0 closes with one B; seg1 opens with new AW at seg1_addr. | TBD |
 | B039 | D | Two-segment seg0_addr identical seg1_addr (degenerate) | 1 | seg0_addr==seg1_addr (legal, same buffer). | Writer respects spans; transitions to fresh seg1_addr arithmetic. | TBD |
 | B040 | D | Two-segment with EOE exactly at end of seg1 | 1 | seg0_span=0x1000, seg1_span=0x1000; drive 2048 words then EOE same beat. | EOE=1 AND FULL=1; both bits set. | TBD |
@@ -189,12 +189,12 @@ dbg2 sidecar field on the DUT as defined in `../RTL_PLAN.md` and
 
 | ID | Method | Scenario | Iter | Stimulus | Pass Criteria | Function Reference |
 |----|--------|----------|------|----------|---------------|--------------------|
-| B087 | D | job_req captured on rising edge | 1 | Pulse job_req for exactly 1 clk. | Engine latches seg/sqe/opcode same clk. | TBD |
+| B087 | D | job_req captured on rising edge | 1 | Pulse job_req for exactly 1 clk. | Engine latches seg/rqe/opcode same clk. | TBD |
 | B088 | D | job_req multi-cycle hold (3 clks) latches once | 1 | Drive job_req high for 3 clk. | Engine sees one job; second pulse ignored until next IDLE entry. | TBD |
 | B089 | D | job_done asserted exactly 1 clk | 1 | Run a single job. | job_done high for 1 clk; falls to 0 next clk. | TBD |
 | B090 | D | job_done does not overlap job_req | 1 | Drive new job_req same cycle as job_done. | Engine accepts new job after job_done falls; SVA passes. | TBD |
-| B091 | D | Report fields hold valid >=1 clk after job_done | 1 | Capture report fields 1 clk after done. | All bytes_written/status/sqe_id_echo/event_count/ts fields stable. | TBD |
-| B092 | D | sqe_id_echo matches sqe_id input | 1 | Run with sqe_id=0xABCD. | sqe_id_echo==0xABCD on done. | TBD |
+| B091 | D | Report fields hold valid >=1 clk after job_done | 1 | Capture report fields 1 clk after done. | All bytes_written/status/rqe_id_echo/event_count/ts fields stable. | TBD |
+| B092 | D | rqe_id_echo matches rqe_id input | 1 | Run with rqe_id=0xABCD. | rqe_id_echo==0xABCD on done. | TBD |
 
 ---
 

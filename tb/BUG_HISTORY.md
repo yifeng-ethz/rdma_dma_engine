@@ -42,8 +42,8 @@ Historical formal note:
 | [BUG-000-H](#bug-000-h-bug-history-seeded-empty-at-dv-bring-up) | H | non-datapath-refactor | directed-only (DV bring-up bookkeeping) | fixed | DV bring-up | `pending` | BUG_HISTORY.md seeded empty at DV bring-up so the ledger lints clean before any real RTL/harness bug surfaces. |
 | [BUG-001-R](#bug-001-r-packer-word-order-reverses-dv-plan-msb-first-contract) | H | soft error | common (single full DMA word) | fixed | B002 dual-debug smoke | `3d2ba7f` | TB scoreboard and docs expected MSB-first while RTL/prototype pack LSB-first. |
 | [BUG-002-R](#bug-002-r-aw-burst-metadata-could-drift-and-underfill-streaming-bursts) | R | soft error | common (streaming DMA with AW backpressure or max-burst checks) | fixed | Phase B B015/B052 expansion | `eb0ce24` | AW fields were not fully transaction-latched and the writer latched bursts before the FIFO could reach max-burst depth. |
-| [BUG-003-H](#bug-003-h-dual-debug-lineage-scorecards-used-different-sequence-number-canonicals) | H | non-datapath-refactor | directed-only (dual-debug scorecard comparison for generated cases) | fixed | Phase B B013-B016 cross-validate | `eb0ce24` | DEBUG_LEVEL=1 scorecards synthesized sequence_no=1 while DEBUG_LEVEL=2 carried the generated case SQE-derived sequence number. |
-| [BUG-004-H](#bug-004-h-generated-phase-b-lineage-harness-coupled-independent-fields) | H | non-datapath-refactor | directed-only (long dual-debug generated-case comparison) | fixed | Phase B B017-B032 expansion | `2dd9507` | Generated Phase B sequence metadata was coupled to SQE IDs and payload byte rollover, breaking long-case dual-debug evidence. |
+| [BUG-003-H](#bug-003-h-dual-debug-lineage-scorecards-used-different-sequence-number-canonicals) | H | non-datapath-refactor | directed-only (dual-debug scorecard comparison for generated cases) | fixed | Phase B B013-B016 cross-validate | `eb0ce24` | DEBUG_LEVEL=1 scorecards synthesized sequence_no=1 while DEBUG_LEVEL=2 carried the generated case RQE-derived sequence number. |
+| [BUG-004-H](#bug-004-h-generated-phase-b-lineage-harness-coupled-independent-fields) | H | non-datapath-refactor | directed-only (long dual-debug generated-case comparison) | fixed | Phase B B017-B032 expansion | `2dd9507` | Generated Phase B sequence metadata was coupled to RQE IDs and payload byte rollover, breaking long-case dual-debug evidence. |
 | [BUG-005-H](#bug-005-h-axi-completer-dropped-same-cycle-bvalid-before-clocked-handshake) | H | non-datapath-refactor | directed-only (same-cycle BVALID stress) | fixed | Phase B B059 | `21aca89` | The AXI completer deasserted BVALID before the DUT could sample a same-cycle B-channel handshake. |
 | [BUG-006-R](#bug-006-r-eoe-tail-could-remain-behind-short-final-aw) | R | soft error | common (EOE after full FIFO beats but before a 16-beat burst is available) | fixed | Phase B B063 | `21aca89` | The writer could latch a short final AW before the packer had pushed the EOE partial tail into the FIFO. |
 | [BUG-007-R](#bug-007-r-eoe-reporting-could-close-before-later-event-beats-drained) | R | soft error | occasional (multi-event EOE jobs under host B-channel latency) | fixed | Phase B B066 | `c884e45` | The writer stopped accepting later event beats and reported after the first EOE/B response instead of draining all accepted multi-event data. |
@@ -350,7 +350,7 @@ Historical formal note:
     first clean B017-B032 simulation pass
 - Symptom:
   - `B025` under DEBUG_LEVEL=2 reported lineage differences when the case
-    used `sqe_id=0x0000`
+    used `rqe_id=0x0000`
   - after adding an independent `sequence_no` argument, the positional
     `run_dma_job` call accidentally shifted `300000` into `idle_after_each`,
     making `B017` run for an impractical number of cycles until the job was
@@ -360,8 +360,8 @@ Historical formal note:
     255 because DEBUG_LEVEL=1 reconstructed `sequence_no=2+` while
     DEBUG_LEVEL=2 correctly retained `sequence_no=1`
 - Root cause:
-  - generated tests had tied DEBUG lineage `sequence_no` to `sqe_id`, even
-    though the DV cases only require `sqe_id_echo` and do not make SQE ID the
+  - generated tests had tied DEBUG lineage `sequence_no` to `rqe_id`, even
+    though the DV cases only require `rqe_id_echo` and do not make RQE ID the
     lineage sequence source
   - the new `sequence_no` task argument was added ahead of
     `idle_after_each`, and the call site still used positional arguments
@@ -403,12 +403,12 @@ Historical formal note:
     `summary.mismatches=0`
   - `scripts/cross_validate_dbg.py` rejected the scorecards because the first
     three lineage fields matched, but `sequence_no` was `1` in DEBUG_LEVEL=1
-    and the generated case SQE-derived value in DEBUG_LEVEL=2
+    and the generated case RQE-derived value in DEBUG_LEVEL=2
 - Root cause:
   - DEBUG_LEVEL=1 intentionally ties off the DEBUG2 sideband wires
   - the scoreboard canonicalized missing DEBUG2 metadata by setting
     `sequence_no=1`, which was only valid for the original B002 smoke
-  - generated Phase B OPQ data encodes the SQE-derived sequence number in the
+  - generated Phase B OPQ data encodes the RQE-derived sequence number in the
     payload, so the DEBUG_LEVEL=1 functional lineage had enough information to
     reconstruct the same canonical sequence number as DEBUG_LEVEL=2
 - Fix status:

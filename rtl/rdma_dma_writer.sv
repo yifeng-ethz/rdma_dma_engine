@@ -23,14 +23,14 @@ module rdma_dma_writer #(
     input  wire logic [63:0]                    job_seg0_span,
     input  wire logic [63:0]                    job_seg1_addr,
     input  wire logic [63:0]                    job_seg1_span,
-    input  wire logic [15:0]                    job_sqe_id,
+    input  wire logic [15:0]                    job_rqe_id,
     input  wire logic [15:0]                    job_opcode,
     output logic                                job_done,
     output logic [63:0]                         job_bytes_written_total,
     output logic [31:0]                         job_seg0_bytes_written,
     output logic [31:0]                         job_seg1_bytes_written,
     output logic [15:0]                         job_status,
-    output logic [15:0]                         job_sqe_id_echo,
+    output logic [15:0]                         job_rqe_id_echo,
     output logic [31:0]                         job_event_count,
     output logic [63:0]                         job_first_event_ts,
     output logic [63:0]                         job_last_event_ts,
@@ -117,7 +117,7 @@ module rdma_dma_writer #(
         logic [63:0]       cur_addr;
         logic [63:0]       bytes_left_seg;
         logic              cur_seg;
-        logic [15:0]       sqe_id;
+        logic [15:0]       rqe_id;
         logic [15:0]       opcode;
         logic [15:0]       status;
         logic [63:0]       total_bytes;
@@ -142,7 +142,7 @@ module rdma_dma_writer #(
         cur_addr        : 64'h0000_0000_0000_0000,
         bytes_left_seg  : 64'h0000_0000_0000_0000,
         cur_seg         : 1'b0,
-        sqe_id          : 16'h0000,
+        rqe_id          : 16'h0000,
         opcode          : 16'h0000,
         status          : 16'h0000,
         total_bytes     : 64'h0000_0000_0000_0000,
@@ -286,7 +286,7 @@ module rdma_dma_writer #(
     assign job_seg0_bytes_written  = writer.seg0_bytes;
     assign job_seg1_bytes_written  = writer.seg1_bytes;
     assign job_status              = writer.status;
-    assign job_sqe_id_echo         = writer.sqe_id;
+    assign job_rqe_id_echo         = writer.rqe_id;
     assign job_event_count         = writer.event_count;
     assign job_first_event_ts      = writer.first_event_ts;
     assign job_last_event_ts       = writer.last_event_ts;
@@ -317,7 +317,7 @@ module rdma_dma_writer #(
                         writer.seg0_span       <= job_seg0_span;
                         writer.seg1_addr       <= job_seg1_addr;
                         writer.seg1_span       <= job_seg1_span;
-                        writer.sqe_id          <= job_sqe_id;
+                        writer.rqe_id          <= job_rqe_id;
                         writer.opcode          <= job_opcode;
                         writer.status[STATUS_SEG0_ONLY_CONST] <=
                             (job_seg1_span == 64'h0000_0000_0000_0000);

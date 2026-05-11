@@ -26,14 +26,14 @@ module rdma_dma_engine_standalone_top #(
     logic [63:0]               job_seg0_span;
     logic [63:0]               job_seg1_addr;
     logic [63:0]               job_seg1_span;
-    logic [15:0]               job_sqe_id;
+    logic [15:0]               job_rqe_id;
     logic [15:0]               job_opcode;
     logic                      job_done;
     logic [63:0]               job_bytes_written_total;
     logic [31:0]               job_seg0_bytes_written;
     logic [31:0]               job_seg1_bytes_written;
     logic [15:0]               job_status;
-    logic [15:0]               job_sqe_id_echo;
+    logic [15:0]               job_rqe_id_echo;
     logic [31:0]               job_event_count;
     logic [63:0]               job_first_event_ts;
     logic [63:0]               job_last_event_ts;
@@ -91,7 +91,7 @@ module rdma_dma_engine_standalone_top #(
     assign job_seg1_addr = {24'h00_0002, stim_counter[27:12], 12'h000};
     assign job_seg1_span = stim_counter[11] ? 64'h0000_0000_0000_1000 :
                                              64'h0000_0000_0000_0000;
-    assign job_sqe_id    = stim_counter[15:0];
+    assign job_rqe_id    = stim_counter[15:0];
     assign job_opcode    = 16'h0001;
 
     assign m_axi_awready = stim_counter[1] || stim_counter[2];
@@ -122,14 +122,14 @@ module rdma_dma_engine_standalone_top #(
         .job_seg0_span          (job_seg0_span),
         .job_seg1_addr          (job_seg1_addr),
         .job_seg1_span          (job_seg1_span),
-        .job_sqe_id             (job_sqe_id),
+        .job_rqe_id             (job_rqe_id),
         .job_opcode             (job_opcode),
         .job_done               (job_done),
         .job_bytes_written_total(job_bytes_written_total),
         .job_seg0_bytes_written (job_seg0_bytes_written),
         .job_seg1_bytes_written (job_seg1_bytes_written),
         .job_status             (job_status),
-        .job_sqe_id_echo        (job_sqe_id_echo),
+        .job_rqe_id_echo        (job_rqe_id_echo),
         .job_event_count        (job_event_count),
         .job_first_event_ts     (job_first_event_ts),
         .job_last_event_ts      (job_last_event_ts),
@@ -183,7 +183,7 @@ module rdma_dma_engine_standalone_top #(
         s_axis_opq_tready,
         ^m_axi_awlen,
         ^job_status,
-        ^job_sqe_id_echo,
+        ^job_rqe_id_echo,
         ^job_event_count,
         ^job_seg0_bytes_written,
         ^job_seg1_bytes_written,

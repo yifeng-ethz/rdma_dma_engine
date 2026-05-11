@@ -47,7 +47,7 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
     bit [31:0] seg1_bytes;
     bit [15:0] status_value;
     bit [15:0] status_mask;
-    bit [15:0] sqe_id;
+    bit [15:0] rqe_id;
   } job_expect_t;
 
   beat_t expected_beats[$];
@@ -140,7 +140,7 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
     input bit [31:0] seg1_bytes,
     input bit [15:0] status_value,
     input bit [15:0] status_mask,
-    input bit [15:0] sqe_id
+    input bit [15:0] rqe_id
   );
     job_expect_t exp;
     exp.total_bytes = total_bytes;
@@ -148,7 +148,7 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
     exp.seg1_bytes = seg1_bytes;
     exp.status_value = status_value;
     exp.status_mask = status_mask;
-    exp.sqe_id = sqe_id;
+    exp.rqe_id = rqe_id;
     expected_jobs.push_back(exp);
   endfunction
 
@@ -282,8 +282,8 @@ class rdma_dma_engine_scoreboard extends uvm_scoreboard;
       if ((item.status & exp.status_mask) !== (exp.status_value & exp.status_mask))
         note_mismatch($sformatf("status mismatch got=0x%04h expected(masked)=0x%04h mask=0x%04h",
                                 item.status, exp.status_value, exp.status_mask));
-      if (item.sqe_id_echo !== exp.sqe_id)
-        note_mismatch($sformatf("sqe_id_echo=0x%04h expected=0x%04h", item.sqe_id_echo, exp.sqe_id));
+      if (item.rqe_id_echo !== exp.rqe_id)
+        note_mismatch($sformatf("rqe_id_echo=0x%04h expected=0x%04h", item.rqe_id_echo, exp.rqe_id));
     end else begin
       if (item.bytes_written_total != expected_byte_count)
         note_mismatch($sformatf("job bytes mismatch got=%0d expected=%0d",

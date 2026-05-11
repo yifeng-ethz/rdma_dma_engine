@@ -1849,7 +1849,7 @@
           "method": "D",
           "observed_txn": 1,
           "passed": true,
-          "primary_checks": "job_done after one AW/W/B cycle; status[EOE]=1; status[SEG0_ONLY]=1; bytes_written_total==32; sqe_id_echo matches.",
+          "primary_checks": "job_done after one AW/W/B cycle; status[EOE]=1; status[SEG0_ONLY]=1; bytes_written_total==32; rqe_id_echo matches.",
           "scenario": "Smoke single-segment 4 KB job, 8 OPQ words, EOE arrives",
           "seed": 1,
           "standalone_coverage": {
@@ -3235,7 +3235,7 @@
           "build_tag_lower": "dual_debug",
           "case_id": "B024",
           "contract_anchor": "BASIC plan B024; TBD",
-          "description": "Set sqe_id=0xBEEF.",
+          "description": "Set rqe_id=0xBEEF.",
           "full_case_id": "B024",
           "implementation_mode": "uvm_phase_b_generated",
           "implemented": true,
@@ -3257,8 +3257,8 @@
           "method": "D",
           "observed_txn": 1,
           "passed": true,
-          "primary_checks": "sqe_id_echo==0xBEEF on completion.",
-          "scenario": "Smoke single-segment with sqe_id=0xBEEF, opcode=0x0001",
+          "primary_checks": "rqe_id_echo==0xBEEF on completion.",
+          "scenario": "Smoke single-segment with rqe_id=0xBEEF, opcode=0x0001",
           "seed": 1,
           "standalone_coverage": {
             "branch": {
@@ -3363,7 +3363,7 @@
           "build_tag_lower": "dual_debug",
           "case_id": "B025",
           "contract_anchor": "BASIC plan B025; TBD",
-          "description": "sqe_id=0x0000.",
+          "description": "rqe_id=0x0000.",
           "full_case_id": "B025",
           "implementation_mode": "uvm_phase_b_generated",
           "implemented": true,
@@ -3385,8 +3385,8 @@
           "method": "D",
           "observed_txn": 1,
           "passed": true,
-          "primary_checks": "sqe_id_echo==0.",
-          "scenario": "Smoke single-segment with sqe_id=0x0000",
+          "primary_checks": "rqe_id_echo==0.",
+          "scenario": "Smoke single-segment with rqe_id=0x0000",
           "seed": 1,
           "standalone_coverage": {
             "branch": {
@@ -3491,7 +3491,7 @@
           "build_tag_lower": "dual_debug",
           "case_id": "B026",
           "contract_anchor": "BASIC plan B026; TBD",
-          "description": "sqe_id=0xFFFF.",
+          "description": "rqe_id=0xFFFF.",
           "full_case_id": "B026",
           "implementation_mode": "uvm_phase_b_generated",
           "implemented": true,
@@ -3513,8 +3513,8 @@
           "method": "D",
           "observed_txn": 1,
           "passed": true,
-          "primary_checks": "sqe_id_echo==0xFFFF.",
-          "scenario": "Smoke single-segment with sqe_id=0xFFFF",
+          "primary_checks": "rqe_id_echo==0xFFFF.",
+          "scenario": "Smoke single-segment with rqe_id=0xFFFF",
           "seed": 1,
           "standalone_coverage": {
             "branch": {
@@ -4899,7 +4899,7 @@
           "build_tag_lower": "dual_debug",
           "case_id": "B037",
           "contract_anchor": "BASIC plan B037; TBD",
-          "description": "sqe_id=0xCAFE, opcode=0x0001.",
+          "description": "rqe_id=0xCAFE, opcode=0x0001.",
           "full_case_id": "B037",
           "implementation_mode": "uvm_phase_b_generated",
           "implemented": true,
@@ -4921,8 +4921,8 @@
           "method": "D",
           "observed_txn": 16,
           "passed": true,
-          "primary_checks": "sqe_id_echo==0xCAFE.",
-          "scenario": "Two-segment with non-zero sqe_id and opcode",
+          "primary_checks": "rqe_id_echo==0xCAFE.",
+          "scenario": "Two-segment with non-zero rqe_id and opcode",
           "seed": 1,
           "standalone_coverage": {
             "branch": {
@@ -11321,7 +11321,7 @@
           "method": "D",
           "observed_txn": 1,
           "passed": true,
-          "primary_checks": "Engine latches seg/sqe/opcode same clk.",
+          "primary_checks": "Engine latches seg/rqe/opcode same clk.",
           "scenario": "job_req captured on rising edge",
           "seed": 1,
           "standalone_coverage": {
@@ -11833,7 +11833,7 @@
           "method": "D",
           "observed_txn": 1,
           "passed": true,
-          "primary_checks": "All bytes_written/status/sqe_id_echo/event_count/ts fields stable.",
+          "primary_checks": "All bytes_written/status/rqe_id_echo/event_count/ts fields stable.",
           "scenario": "Report fields hold valid >=1 clk after job_done",
           "seed": 1,
           "standalone_coverage": {
@@ -11939,7 +11939,7 @@
           "build_tag_lower": "dual_debug",
           "case_id": "B092",
           "contract_anchor": "BASIC plan B092; TBD",
-          "description": "Run with sqe_id=0xABCD.",
+          "description": "Run with rqe_id=0xABCD.",
           "full_case_id": "B092",
           "implementation_mode": "uvm_phase_b_generated",
           "implemented": true,
@@ -11961,8 +11961,8 @@
           "method": "D",
           "observed_txn": 1,
           "passed": true,
-          "primary_checks": "sqe_id_echo==0xABCD on done.",
-          "scenario": "sqe_id_echo matches sqe_id input",
+          "primary_checks": "rqe_id_echo==0xABCD on done.",
+          "scenario": "rqe_id_echo matches rqe_id input",
           "seed": 1,
           "standalone_coverage": {
             "branch": {
@@ -32602,7 +32602,7 @@
           "build_tag_lower": "dual_debug",
           "case_id": "E073",
           "contract_anchor": "EDGE plan E073; TBD",
-          "description": "Both with sqe_id=0x1234.",
+          "description": "Both with rqe_id=0x1234.",
           "full_case_id": "E073",
           "implementation_mode": "uvm_phase_b_generated",
           "implemented": true,
@@ -32625,7 +32625,7 @@
           "observed_txn": 2,
           "passed": true,
           "primary_checks": "Both echo back same id; engine accepts.",
-          "scenario": "Two jobs with same sqe_id (legal)",
+          "scenario": "Two jobs with same rqe_id (legal)",
           "seed": 1,
           "standalone_coverage": {
             "branch": {
@@ -32753,7 +32753,7 @@
           "observed_txn": 2,
           "passed": true,
           "primary_checks": "Echos correct.",
-          "scenario": "Two jobs with sqe_id=0 then 0xFFFF",
+          "scenario": "Two jobs with rqe_id=0 then 0xFFFF",
           "seed": 1,
           "standalone_coverage": {
             "branch": {
@@ -71112,7 +71112,7 @@
           "build_tag_lower": "dual_debug",
           "case_id": "P013",
           "contract_anchor": "PROF plan P013; TBD",
-          "description": "Walk sqe_id space.",
+          "description": "Walk rqe_id space.",
           "full_case_id": "P013",
           "implementation_mode": "uvm_phase_b_generated",
           "implemented": true,
@@ -71135,7 +71135,7 @@
           "observed_txn": 32,
           "passed": true,
           "primary_checks": "Echos correct on each job.",
-          "scenario": "100 jobs with random sqe_id",
+          "scenario": "100 jobs with random rqe_id",
           "seed": 1,
           "standalone_coverage": {
             "branch": {

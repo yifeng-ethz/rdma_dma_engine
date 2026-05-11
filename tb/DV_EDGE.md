@@ -31,7 +31,7 @@ AXI4 burst-sizing arithmetic in `RTL_PLAN.md` section 4.3.
 | Packer flush edges | 12 | E041-E052 | EOE-pad behavior, slot index walks, partial line at every slot index | 0/12 |
 | Segment boundary edges | 10 | E053-E062 | seg0->seg1 transition under various conditions: mid-burst, on-burst-edge, on-EOE-pad | 0/10 |
 | Job-end condition edges | 8 | E063-E070 | EOE / FULL / both, with various burst alignments | 0/8 |
-| Two-job back-to-back edges | 8 | E071-E078 | second job_req exactly at job_done; second job with different sqe_id | 0/8 |
+| Two-job back-to-back edges | 8 | E071-E078 | second job_req exactly at job_done; second job with different rqe_id | 0/8 |
 | DEBUG_LEVEL=1 invariant edges | 6 | E079-E084 | dbg1 taps consistency at every FSM transition and counter event | 0/6 |
 | DEBUG_LEVEL=2 sidecar edges | 6 | E085-E090 | lineage matcher edge cases: padding, halt, wraparound | 0/6 |
 | Random nominal corner-case smoke | 4 | E091-E094 | random stimuli targeting boundary regions | 0/4 |
@@ -170,8 +170,8 @@ AXI4 burst-sizing arithmetic in `RTL_PLAN.md` section 4.3.
 |----|--------|----------|------|----------|---------------|--------------------|
 | E071 | D | Second job_req exactly 1 clk after job_done | 1 | Issue job_req on the cycle after job_done. | Engine accepts; second job runs cleanly. | TBD |
 | E072 | D | Second job_req same cycle as job_done (overlap) | 1 | Issue job_req on the same cycle as job_done. | Engine accepts (per SVA); next IDLE entry sees the new req. | TBD |
-| E073 | D | Two jobs with same sqe_id (legal) | 1 | Both with sqe_id=0x1234. | Both echo back same id; engine accepts. | TBD |
-| E074 | D | Two jobs with sqe_id=0 then 0xFFFF | 1 | Walk extremes. | Echos correct. | TBD |
+| E073 | D | Two jobs with same rqe_id (legal) | 1 | Both with rqe_id=0x1234. | Both echo back same id; engine accepts. | TBD |
+| E074 | D | Two jobs with rqe_id=0 then 0xFFFF | 1 | Walk extremes. | Echos correct. | TBD |
 | E075 | D | Three jobs back-to-back | 1 | 3 single-segment 4 KB jobs. | All 3 complete in order; counters monotonic. | TBD |
 | E076 | D | Two jobs separated by 1000 idle clks | 1 | Idle gap. | Both complete; engine returns to WR_IDLE between. | TBD |
 | E077 | D | Two jobs with different opcodes | 1 | Both opcode=0x0001 (only legal Phase 1). | Both run. | TBD |

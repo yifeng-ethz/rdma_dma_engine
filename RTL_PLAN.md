@@ -2,14 +2,14 @@
 
 Status: **PLAN — pending review.** Part of the
 [`rdma_subsystem`](../rdma_subsystem/ARCHITECTURE_PLAN.md). Read the
-parent architecture plan first for the SQ/CQ contract context.
+parent architecture plan first for the RQ/CQ contract context.
 
 ## 1. Role within the subsystem
 
-Pure data mover. Knows nothing about SQ rings, CQ rings, or doorbells.
-Programmed by the `rdma_run_manager` with `(buf_addr, buf_len_bytes, sqe_id)`
+Pure data mover. Knows nothing about RQ rings, CQ rings, or doorbells.
+Programmed by the `rdma_run_manager` with `(buf_addr, buf_len_bytes, rqe_id)`
 and drains an OPQ-side data stream into that named host-DRAM region using
-an Avalon-MM master. Reports back `(bytes_written, status, sqe_id)` on
+an Avalon-MM master. Reports back `(bytes_written, status, rqe_id)` on
 completion.
 
 Owns the high-bandwidth path. Lives between OPQ egress and the host.
@@ -50,14 +50,14 @@ module rdma_dma_engine #(
     input  logic [63:0]          job_seg0_span,
     input  logic [63:0]          job_seg1_addr,       // 0 if unused
     input  logic [63:0]          job_seg1_span,       // 0 if unused
-    input  logic [15:0]          job_sqe_id,
+    input  logic [15:0]          job_rqe_id,
     input  logic [15:0]          job_opcode,
     output logic                 job_done,
     output logic [63:0]          job_bytes_written_total,
     output logic [31:0]          job_seg0_bytes_written,
     output logic [31:0]          job_seg1_bytes_written,
     output logic [15:0]          job_status,           // see ARCH §5 status bits
-    output logic [15:0]          job_sqe_id_echo,
+    output logic [15:0]          job_rqe_id_echo,
     output logic [31:0]          job_event_count,
     output logic [63:0]          job_first_event_ts,
     output logic [63:0]          job_last_event_ts,
@@ -211,7 +211,7 @@ Lives at `tb/uvm/rdma_dma_engine_tb_top.sv`.
 |---|---------------------------------------|----------------|
 | 1 | Single job, hits-only, EOE arrives    | job_done; bytes_written = N×4 + padding alignment; status[EOE]=1 |
 | 2 | Single job, buf too small             | status[FULL]=1; bytes_written == buf_len_bytes |
-| 3 | Two back-to-back jobs                 | both complete in order; sqe_id echo correct |
+| 3 | Two back-to-back jobs                 | both complete in order; rqe_id echo correct |
 | 4 | OPQ idle while job_req asserted       | engine waits, no spurious done |
 | 5 | Throttled host (avm_waitrequest)      | bursts pause, then resume; bytes lossless |
 | 6 | FIFO almost-full → halt               | cnt_halt > 0; engine still conserves bytes that DID enter packer |

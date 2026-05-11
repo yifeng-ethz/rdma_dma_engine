@@ -35,7 +35,7 @@ class job_driver extends uvm_driver #(job_item);
     vif.job_seg0_span <= item.seg0_span;
     vif.job_seg1_addr <= item.seg1_addr;
     vif.job_seg1_span <= item.seg1_span;
-    vif.job_sqe_id <= item.sqe_id;
+    vif.job_rqe_id <= item.rqe_id;
     vif.job_opcode <= item.opcode;
     vif.job_req <= 1'b1;
     @(negedge vif.clk);

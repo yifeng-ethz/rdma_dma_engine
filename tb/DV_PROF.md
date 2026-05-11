@@ -75,7 +75,7 @@ checkpoint-UCDB rule in the dv-workflow skill. Random cases use the
 | P010 | D | 100 single-segment 16 KB jobs back-to-back | 1 | Larger spans. | All complete; conservation. | TBD |
 | P011 | D | 100 two-segment jobs back-to-back | 1 | Mixed span sizes. | All complete; per-job SEG_BOUNDARY_HIT correctly set. | TBD |
 | P012 | D | 1000 jobs of mixed spans (long-soak) | 1 | Mixed. | Conservation across full soak; bug history empty. | TBD |
-| P013 | D | 100 jobs with random sqe_id | 1 | Walk sqe_id space. | Echos correct on each job. | TBD |
+| P013 | D | 100 jobs with random rqe_id | 1 | Walk rqe_id space. | Echos correct on each job. | TBD |
 | P014 | D | Job stream with continuous OPQ ingest (no idle) | 1 | OPQ never idles; jobs queue. | No drops between jobs; conservation per job. | TBD |
 | P015 | D | Job stream with intermittent OPQ idle | 1 | OPQ idles 100 clk between events. | All complete. | TBD |
 | P016 | D | Job stream of 50 jobs with varying lag profile | 1 | Each job has different host latency. | All complete. | TBD |
