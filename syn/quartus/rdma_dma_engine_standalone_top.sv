@@ -37,6 +37,8 @@ module rdma_dma_engine_standalone_top #(
     logic [31:0]               job_event_count;
     logic [63:0]               job_first_event_ts;
     logic [63:0]               job_last_event_ts;
+    logic                      pcie_posted_write_credit_valid;
+    logic [31:0]               pcie_posted_write_credit_words;
     logic [3:0]                m_axi_awid;
     logic [63:0]               m_axi_awaddr;
     logic [7:0]                m_axi_awlen;
@@ -93,6 +95,8 @@ module rdma_dma_engine_standalone_top #(
                                              64'h0000_0000_0000_0000;
     assign job_rqe_id    = stim_counter[15:0];
     assign job_opcode    = 16'h0001;
+    assign pcie_posted_write_credit_valid = 1'b1;
+    assign pcie_posted_write_credit_words = 32'hffff_ffff;
 
     assign m_axi_awready = stim_counter[1] || stim_counter[2];
     assign m_axi_wready  = stim_counter[2] || stim_counter[5];
@@ -107,6 +111,7 @@ module rdma_dma_engine_standalone_top #(
         .SEG_QUANTUM_BYTES         (4096),
         .FIFO_DEPTH                (256),
         .FIFO_ALMOST_FULL_THRESHOLD(192),
+        .MAX_FRAME_WORDS           (1024),
         .DBG2_META_W               (DBG2_META_W),
         .DEBUG_LEVEL               (0)
     ) dut_i (
@@ -133,6 +138,8 @@ module rdma_dma_engine_standalone_top #(
         .job_event_count        (job_event_count),
         .job_first_event_ts     (job_first_event_ts),
         .job_last_event_ts      (job_last_event_ts),
+        .pcie_posted_write_credit_valid(pcie_posted_write_credit_valid),
+        .pcie_posted_write_credit_words(pcie_posted_write_credit_words),
         .m_axi_awid             (m_axi_awid),
         .m_axi_awaddr           (m_axi_awaddr),
         .m_axi_awlen            (m_axi_awlen),

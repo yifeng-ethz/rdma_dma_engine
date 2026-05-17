@@ -73,6 +73,8 @@ module rdma_dma_engine_tb_top;
     .job_event_count(dut_if.job_event_count),
     .job_first_event_ts(dut_if.job_first_event_ts),
     .job_last_event_ts(dut_if.job_last_event_ts),
+    .pcie_posted_write_credit_valid(dut_if.pcie_posted_write_credit_valid),
+    .pcie_posted_write_credit_words(dut_if.pcie_posted_write_credit_words),
     .m_axi_awid(dut_if.m_axi_awid),
     .m_axi_awaddr(dut_if.m_axi_awaddr),
     .m_axi_awlen(dut_if.m_axi_awlen),

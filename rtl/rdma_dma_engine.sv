@@ -1,8 +1,8 @@
 // File name: rdma_dma_engine.sv
 // Author  : Yifeng Wang (yifenwan@phys.ethz.ch)
-// Version : 26.1.0
-// Date    : 20260510
-// Change  : wire rdma_dma_engine packer FIFO and AXI4 writer top
+// Version : 26.1.1
+// Date    : 20260517
+// Change  : gate OPQ ready by active RQE rxbuffer and PCIe posted-write credit
 
 `default_nettype none
 
@@ -12,6 +12,7 @@ module rdma_dma_engine #(
     parameter int unsigned SEG_QUANTUM_BYTES         = 4096,
     parameter int unsigned FIFO_DEPTH                = 256,
     parameter int unsigned FIFO_ALMOST_FULL_THRESHOLD = 192,
+    parameter int unsigned MAX_FRAME_WORDS           = 1,
     parameter int unsigned DBG2_META_W               = 136,
     parameter int unsigned DEBUG_LEVEL               = 0
 ) (
@@ -40,6 +41,9 @@ module rdma_dma_engine #(
     output logic [31:0]                              job_event_count,
     output logic [63:0]                              job_first_event_ts,
     output logic [63:0]                              job_last_event_ts,
+
+    input  wire logic                                pcie_posted_write_credit_valid,
+    input  wire logic [31:0]                         pcie_posted_write_credit_words,
 
     output logic [3:0]                               m_axi_awid,
     output logic [63:0]                              m_axi_awaddr,
@@ -82,9 +86,18 @@ module rdma_dma_engine #(
 );
 
     localparam int unsigned OPQ_DATA_W_CONST     = 32;
-    localparam int unsigned DBG2_SLOTS_CONST     = DMA_DATA_W / OPQ_DATA_W_CONST;
-    localparam int unsigned FIFO_LEVEL_W_CONST   = $clog2(FIFO_DEPTH + 1);
-    localparam logic [31:0] COUNTER_MAX_CONST    = 32'hffff_ffff;
+    localparam int unsigned OPQ_BYTES_CONST          = OPQ_DATA_W_CONST / 8;
+    localparam int unsigned DBG2_SLOTS_CONST         = DMA_DATA_W / OPQ_DATA_W_CONST;
+    localparam int unsigned FIFO_LEVEL_W_CONST       = $clog2(FIFO_DEPTH + 1);
+    localparam int unsigned MAX_FRAME_BEATS_CONST    =
+        (MAX_FRAME_WORDS + DBG2_SLOTS_CONST - 1) / DBG2_SLOTS_CONST;
+    localparam int unsigned MAX_FRAME_BYTES_CONST    = MAX_FRAME_WORDS * OPQ_BYTES_CONST;
+    localparam logic [FIFO_LEVEL_W_CONST-1:0] FIFO_DEPTH_LEVEL_CONST = FIFO_DEPTH;
+    localparam logic [FIFO_LEVEL_W_CONST-1:0] MAX_FRAME_BEATS_LEVEL_CONST =
+        (MAX_FRAME_BEATS_CONST > FIFO_DEPTH) ? FIFO_DEPTH : MAX_FRAME_BEATS_CONST;
+    localparam logic [63:0] MAX_FRAME_BYTES_64_CONST = MAX_FRAME_BYTES_CONST;
+    localparam logic [31:0] MAX_FRAME_WORDS_32_CONST = MAX_FRAME_WORDS;
+    localparam logic [31:0] COUNTER_MAX_CONST        = 32'hffff_ffff;
 
     logic [DMA_DATA_W-1:0]                       packed_data;
     logic                                        packed_valid;
@@ -118,6 +131,13 @@ module rdma_dma_engine #(
     logic                                        writer_write_bytes_valid;
     logic [5:0]                                  writer_write_bytes;
     logic [FIFO_LEVEL_W_CONST-1:0]               writer_dbg1_fifo_level;
+    logic [63:0]                                 writer_rxbuffer_bytes_available;
+    logic [FIFO_LEVEL_W_CONST-1:0]               fifo_free_beats;
+    logic [63:0]                                 fifo_queued_bytes;
+    logic                                        fifo_has_frame_credit;
+    logic                                        rxbuffer_has_frame_credit;
+    logic                                        pcie_has_frame_credit;
+    logic                                        opq_frame_credit_ready;
 
     function automatic logic [31:0] sat_inc32(
         input logic [31:0] value
@@ -144,6 +164,20 @@ module rdma_dma_engine #(
         end
     endfunction
 
+    assign fifo_free_beats =
+        (fifo_level >= FIFO_DEPTH_LEVEL_CONST) ? '0 : (FIFO_DEPTH_LEVEL_CONST - fifo_level);
+    assign fifo_queued_bytes =
+        64'(fifo_level) << $clog2(DMA_DATA_W / 8);
+    assign fifo_has_frame_credit = (fifo_free_beats > MAX_FRAME_BEATS_LEVEL_CONST);
+    assign rxbuffer_has_frame_credit =
+        writer_accepting_input &&
+        (writer_rxbuffer_bytes_available > (MAX_FRAME_BYTES_64_CONST + fifo_queued_bytes));
+    assign pcie_has_frame_credit =
+        pcie_posted_write_credit_valid &&
+        (pcie_posted_write_credit_words > MAX_FRAME_WORDS_32_CONST);
+    assign opq_frame_credit_ready =
+        fifo_has_frame_credit && rxbuffer_has_frame_credit && pcie_has_frame_credit;
+
     rdma_dma_packer #(
         .DMA_DATA_W   (DMA_DATA_W),
         .OPQ_DATA_W   (OPQ_DATA_W_CONST),
@@ -162,6 +196,7 @@ module rdma_dma_engine #(
         .opq_sop               (s_axis_opq_tuser[0]),
         .opq_eop               (s_axis_opq_tlast),
         .fifo_almost_full      (fifo_almost_full),
+        .frame_credit_ready    (opq_frame_credit_ready),
         .packed_ready          (packed_ready),
         .packed_data           (packed_data),
         .packed_valid          (packed_valid),
@@ -258,6 +293,7 @@ module rdma_dma_engine #(
         .flush_datapath         (writer_flush_datapath),
         .write_bytes_valid      (writer_write_bytes_valid),
         .write_bytes            (writer_write_bytes),
+        .rxbuffer_bytes_available(writer_rxbuffer_bytes_available),
         .m_axi_awid             (m_axi_awid),
         .m_axi_awaddr           (m_axi_awaddr),
         .m_axi_awlen            (m_axi_awlen),

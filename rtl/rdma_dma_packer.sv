@@ -1,8 +1,9 @@
 // File name: rdma_dma_packer.sv
 // Author  : Yifeng Wang (yifenwan@phys.ethz.ch)
-// Version : 26.1.0
-// Date    : 20260510
-// Change  : port OPQ DMA packer with byte-count and DEBUG sidebands
+// Version : 26.1.1
+// Date    : 20260517
+// Change  : drive OPQ ready from explicit downstream frame credit so accepted
+//           words are never dropped inside RDMA.
 
 `default_nettype none
 
@@ -27,6 +28,7 @@ module rdma_dma_packer #(
     input  wire logic                                      opq_eop,
 
     input  wire logic                                      fifo_almost_full,
+    input  wire logic                                      frame_credit_ready,
     input  wire logic                                      packed_ready,
 
     output logic [DMA_DATA_W-1:0]                          packed_data,
@@ -104,11 +106,11 @@ module rdma_dma_packer #(
         end
     endfunction
 
-    assign opq_ready           = 1'b1;
     assign can_emit            = !packed_valid || packed_ready;
-    assign drop_word           = enable && opq_valid && (fifo_almost_full || !can_emit);
-    assign accept_word         = enable && opq_valid && !fifo_almost_full && can_emit;
-    assign zero_byte_eoe       = enable && !opq_valid && opq_eop && can_emit;
+    assign opq_ready           = enable && frame_credit_ready && !fifo_almost_full && can_emit;
+    assign drop_word           = 1'b0;
+    assign accept_word         = opq_valid && opq_ready;
+    assign zero_byte_eoe       = enable && frame_credit_ready && !opq_valid && opq_eop && can_emit;
     assign data_with_word      = insert_word(packer.data, packer.slot_count, opq_data);
     assign dbg2_meta_with_word = insert_meta(packer.dbg2_meta, packer.slot_count, dbg2_meta);
     assign dbg2_mask_with_word = packer.dbg2_valid_mask |
@@ -140,8 +142,8 @@ module rdma_dma_packer #(
             halt_pulse            <= 1'b0;
         end else begin
             packer.cycle_count <= packer.cycle_count + 64'd1;
-            input_word_pulse   <= enable && opq_valid;
-            eoe_pulse          <= enable && opq_eop;
+            input_word_pulse   <= accept_word;
+            eoe_pulse          <= (accept_word && opq_eop) || zero_byte_eoe;
             halt_pulse         <= drop_word;
 
             if (packed_valid && packed_ready) begin

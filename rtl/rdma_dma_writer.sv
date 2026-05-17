@@ -53,6 +53,7 @@ module rdma_dma_writer #(
     output logic                                flush_datapath,
     output logic                                write_bytes_valid,
     output logic [5:0]                          write_bytes,
+    output logic [63:0]                         rxbuffer_bytes_available,
 
     output logic [3:0]                          m_axi_awid,
     output logic [63:0]                         m_axi_awaddr,
@@ -171,6 +172,7 @@ module rdma_dma_writer #(
     logic [5:0] useful_bytes;
     logic       final_beat_exhausts_seg;
     logic       eoe_report_ready;
+    logic [63:0] rxbuffer_bytes_available_raw;
 
     function automatic logic [7:0] choose_aw_beats(
         input logic [FIFO_LEVEL_W-1:0] level,
@@ -280,6 +282,11 @@ module rdma_dma_writer #(
     assign flush_datapath         = (writer.state == WR_REPORTING);
     assign write_bytes_valid      = w_fire;
     assign write_bytes            = useful_bytes;
+    assign rxbuffer_bytes_available_raw =
+        (writer.cur_seg == 1'b0) ? (writer.bytes_left_seg + writer.seg1_span) :
+        writer.bytes_left_seg;
+    assign rxbuffer_bytes_available =
+        accepting_input ? rxbuffer_bytes_available_raw : 64'h0000_0000_0000_0000;
 
     assign job_done                = (writer.state == WR_REPORTING);
     assign job_bytes_written_total = writer.total_bytes;

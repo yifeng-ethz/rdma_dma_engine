@@ -5,6 +5,7 @@ module rdma_dma_engine #(
   parameter int unsigned DMA_DATA_W = 256,
   parameter int unsigned MAX_BURST_BEATS = 16,
   parameter int unsigned SEG_QUANTUM_BYTES = 4096,
+  parameter int unsigned MAX_FRAME_WORDS = 1,
   parameter int unsigned DEBUG_LEVEL = 1
 ) (
   input  logic clk,
@@ -30,6 +31,8 @@ module rdma_dma_engine #(
   output logic [31:0] job_event_count,
   output logic [63:0] job_first_event_ts,
   output logic [63:0] job_last_event_ts,
+  input  logic pcie_posted_write_credit_valid,
+  input  logic [31:0] pcie_posted_write_credit_words,
   output logic [3:0] m_axi_awid,
   output logic [63:0] m_axi_awaddr,
   output logic [7:0] m_axi_awlen,

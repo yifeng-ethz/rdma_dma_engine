@@ -31,6 +31,9 @@ interface rdma_dma_engine_if #(
   logic [63:0] job_first_event_ts;
   logic [63:0] job_last_event_ts;
 
+  logic        pcie_posted_write_credit_valid;
+  logic [31:0] pcie_posted_write_credit_words;
+
   logic [3:0]            m_axi_awid;
   logic [63:0]           m_axi_awaddr;
   logic [7:0]            m_axi_awlen;
@@ -88,6 +91,8 @@ interface rdma_dma_engine_if #(
     job_seg1_span <= '0;
     job_rqe_id <= '0;
     job_opcode <= '0;
+    pcie_posted_write_credit_valid <= 1'b1;
+    pcie_posted_write_credit_words <= 32'hffff_ffff;
     m_axi_awready <= 1'b0;
     m_axi_wready <= 1'b0;
     m_axi_bid <= '0;
